@@ -28,7 +28,8 @@ build_table() {
         && pre='frozen' || pre='**ALTERED**'
     elif [ -f "$dir/README.md" ]; then pre=draft; else pre='—'; fi
     [ -f "$dir/results/report/iteration${d}_report.md" ] && res=report || res='—'
-    arh_crosschecks "$dir" | grep -q . && xc=yes || xc='—'
+    # The verdicts themselves, not "yes": an UNSOUND review is part of the record (external review, 2026-10-13).
+    xc=$(python3 "$ARH_HOME/lib/findings.py" summary "$dir"); [ -n "$xc" ] || xc='—'
     printf '| %s | %s | %s | %s | %s | %s |\n' "$d" "${agent:-—}" "$pre" "$res" "$xc" "${title:-—}"
   done
   # Verifications sit beside the iterations they check (arh verify conclude records the outcome).
@@ -83,6 +84,16 @@ case "$sub" in
       grep -q "iteration $d\b\|iteration${d}\b\|^| $d |" "$ARH_LEDGER" 2>/dev/null \
         && arh_ok "iteration $d" || { arh_fail "iteration $d — absent from the ledger"; fails=$((fails+1)); }
     done
+    # The record's own integrity: every claimed number still has its directory (a deleted concluded
+    # iteration once left this check passing), and the freeze journal chains and agrees with the disk.
+    for d in $(python3 "$ARH_HOME/lib/record.py" registry "$ARH_ROOT" "$ARH_ITERS"); do
+      arh_fail "iteration $d — in the claim registry, but its directory is gone"; fails=$((fails+1))
+    done
+    if problems=$(python3 "$ARH_HOME/lib/record.py" verify "$ARH_ROOT" "$ARH_ITERS"); then
+      [ -z "$iters" ] || arh_ok "freeze journal chains and matches every frozen iteration"
+    else
+      while IFS= read -r line; do [ -z "$line" ] || { arh_fail "$line"; fails=$((fails+1)); }; done <<< "$problems"
+    fi
     # The generated section must equal a fresh render (protocol 8.3): a stale, missing or
     # duplicated table is an inconsistency even when every iteration number appears somewhere.
     other=$(foreign_marker)

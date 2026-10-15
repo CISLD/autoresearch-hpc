@@ -34,3 +34,10 @@ deferred, disputed) and the reason; with several reviews, put each review's
 answers under a heading that names its `CROSSCHECK_...` file. `arh gate results`
 lists every finding and fails while one is unanswered (`review_response` in
 `project.md`).
+
+An `UNSOUND` verdict is answered as a whole, in the same place:
+`Verdict: rebutted, because <reason>` when the iteration stands despite it, or
+`Verdict: accepted` when it does not. The gate fails until every `UNSOUND`
+review has a rebuttal (`unsound_review` in `project.md`); an accepted one leaves
+the iteration unconcluded, and the correction is a new iteration. A second,
+milder review does not answer the first.

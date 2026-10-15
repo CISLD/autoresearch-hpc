@@ -25,7 +25,7 @@ they are reported as skipped. The result is written as JSON with the commit it r
 
 | ID | Injected violation | Specified behaviour |
 |---|---|---|
-| E1 | required pre-declaration field left empty | predeclare gate refuses |
+| E1 | pre-declaration template left unfilled (placeholders remain) | predeclare gate refuses |
 | E2 | result written before the plan is frozen | predeclare gate refuses |
 | E3 | frozen plan edited after the result | results gate refuses the changed hash |
 | E4 | concurrent claims | distinct iteration numbers |
@@ -39,6 +39,16 @@ they are reported as skipped. The result is written as JSON with the commit it r
 | E11 | review configuration changed after the claim | review refused unless the reason is recorded |
 | E12 | held-out data read before a freeze | a workflow naming the sealed path is refused; a task building the path sees an empty mount; after `arh freeze` the confirmation reads it and the read is logged |
 | E13 | frozen decision changed before the confirmation | `arh submit` refuses the run |
+| E14 | every required heading present, every section empty | predeclare gate refuses |
+| E15 | results moved aside, freeze file deleted, plan edited to fit and frozen again | second freeze refused; a hand-made freeze file fails the results gate |
+| E16 | the only review returns `UNSOUND` | results gate refuses until the response records a reasoned rebuttal; `Verdict: accepted` keeps it refused |
+| E17 | a concluded iteration's directory deleted and the ledger re-rendered | `arh ledger check` fails: the claim registry still lists it |
+
+E14–E17 come from an external review of v0.3.0 (2026-10-13), which found that v0.3.0
+accepted all four: an empty pre-declaration froze, an iteration whose only review said
+`UNSOUND` concluded, a plan rewritten after the result was frozen again in three file
+operations, and a deleted iteration left `arh ledger check` passing. E1 in v0.3.0 tested
+unfilled template placeholders, not an empty field, although this table described it as one.
 
 On 2026-09-21 all twelve cases passed on a local site, and again on Slurm with the
 scratch project on a shared CephFS directory. With

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Protocol conformance matrix: inject each protocol violation and check that arh refuses it.
 
-E1-E13 run this checkout's `arh` in a scratch project against a stand-in reviewer, so no model
+E1-E17 run this checkout's `arh` in a scratch project against a stand-in reviewer, so no model
 is called. E5b, E6, E9, E12 and E13 run real tasks and need --site, a configured site.md. A Slurm or PBS
 site submits real jobs, so put --workdir on a filesystem the compute nodes can see. Without
 --site those five are reported as skipped. The matrix is printed and written as JSON.
@@ -10,6 +10,7 @@ site submits real jobs, so put --workdir on a filesystem the compute nodes can s
                                 [--claim-launcher 'srun -N 4 --ntasks-per-node 8'] [--keep]
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -95,10 +96,12 @@ def main():
     cfg.write_text(cfg.read_text().replace('immutable_inputs  =', f'immutable_inputs  = raw {inputs}', 1))
     terms()
 
+    unreviewed = set()                  # iterations the matrix leaves without a valid review
+
     # E1, E2: the pre-declaration gate.
     n, it = iteration('E1 unfilled pre-declaration', frozen=False, report=False)
     r = arh('gate', 'predeclare', '-n', n)
-    case('E1', 'required pre-declaration field left empty', 'predeclare gate refuses',
+    case('E1', 'pre-declaration template left unfilled', 'predeclare gate refuses',
          r.returncode != 0 and not (it / 'PREDECLARATION.sha256').exists(), r.stdout)
 
     n, it = iteration('E2 result before the plan', frozen=False, report=False)
@@ -107,6 +110,39 @@ def main():
     r = arh('gate', 'predeclare', '-n', n)
     case('E2', 'result written before the plan is frozen', 'predeclare gate refuses',
          r.returncode != 0 and not (it / 'PREDECLARATION.sha256').exists(), r.stdout)
+
+    # E14: every required heading present, every body empty (v0.3.0 froze this).
+    n, it = iteration('E14 empty sections', frozen=False, report=False)
+    (it / 'README.md').write_text(''.join(f'## {i}. {h}\n\n' for i, h in enumerate(HEADINGS, 1)))
+    r = arh('gate', 'predeclare', '-n', n)
+    case('E14', 'required sections present but empty', 'predeclare gate refuses',
+         r.returncode != 0 and 'section empty' in r.stdout and not (it / 'PREDECLARATION.sha256').exists(), r.stdout)
+
+    # E15: results moved aside, the freeze deleted, the plan edited to fit and frozen again (v0.3.0
+    # accepted it in three file operations). The second freeze is refused; a hand-made one is caught.
+    n, it = iteration('E15 plan frozen again after the result', report=False)
+    (it / 'results/observed.txt').write_text('the result\n')
+    aside = work / 'aside'
+    shutil.move(str(it / 'results'), aside)
+    (it / 'results').mkdir()
+    freeze = (it / 'PREDECLARATION.sha256').read_text()
+    (it / 'PREDECLARATION.sha256').unlink()
+    (it / 'README.md').write_text(DECLARATION + 'Prediction revised to fit the result.\n')
+    refreeze = arh('gate', 'predeclare', '-n', n)
+    (it / 'PREDECLARATION.sha256').write_text(hashlib.sha256((it / 'README.md').read_bytes()).hexdigest() + '\n')
+    shutil.rmtree(it / 'results'); shutil.move(str(aside), it / 'results')
+    (it / 'results/report').mkdir(parents=True, exist_ok=True)
+    (it / f'results/report/iteration{n}_report.md').write_text(REPORT)
+    must('ask', '-n', n)
+    forged = arh('gate', 'results', '-n', n)
+    case('E15', 'plan re-frozen after the result (freeze file deleted)', 'second freeze refused; forged freeze fails',
+         refreeze.returncode != 0 and 'frozen once' in refreeze.stderr
+         and forged.returncode != 0 and 'frozen again' in forged.stdout,
+         f'second freeze refused {refreeze.returncode != 0}; hand-made freeze fails the results gate '
+         f'{forged.returncode != 0 and "frozen again" in forged.stdout}')
+    (it / 'README.md').write_text(DECLARATION)
+    (it / 'PREDECLARATION.sha256').write_text(freeze)
+    unreviewed.add(int(n))              # its review was of the forged plan
 
     # A reviewed iteration that passes its results gate, for E3 and E8.
     n, it = iteration('reviewed iteration')
@@ -234,7 +270,6 @@ def main():
         cfg.write_text(before_seal)
 
     # E7: claimed under terms that name a same-family verifier, so only the family rule applies.
-    unreviewed = set()                  # iterations the matrix leaves without a valid review
     terms(verifier_family='openai')
     n, it = iteration('E7 same-family review')
     unreviewed.add(int(n))
@@ -251,6 +286,22 @@ def main():
     r = arh('gate', 'results', '-n', n)
     case('E8', 'evidence changed after a review', 'review becomes ineligible',
          r.returncode != 0 and 'INELIGIBLE' in r.stdout, r.stdout)
+
+    # E16: the only review says UNSOUND. v0.3.0 concluded the iteration anyway.
+    reviewer.write_text("print('VERDICT: UNSOUND')\nprint('F1: the instrument double counts')\n")
+    n, it = iteration('E16 unsound review')
+    must('ask', '-n', n)
+    unanswered = arh('gate', 'results', '-n', n)
+    (it / 'REVIEW_RESPONSE.md').write_text('Verdict: accepted\nF1: accepted; corrected in a new iteration\n')
+    accepted = arh('gate', 'results', '-n', n)
+    (it / 'REVIEW_RESPONSE.md').write_text('Verdict: rebutted, because the double count is outside the claim.\n'
+                                           'F1: rejected; the counted records do not overlap\n')
+    rebutted = arh('gate', 'results', '-n', n)
+    reviewer.write_text("print('VERDICT: SOUND')\n")
+    case('E16', 'the only review returns UNSOUND', 'conclusion refused until a rebuttal is recorded',
+         unanswered.returncode != 0 and accepted.returncode != 0 and rebutted.returncode == 0,
+         f'refused unanswered {unanswered.returncode != 0}; refused when accepted {accepted.returncode != 0}; '
+         f'concludes with a recorded rebuttal {rebutted.returncode == 0}')
 
     # E11: the review terms were bound at claim; changing them needs a recorded reason.
     n, it = iteration('E11 review terms changed after the claim')
@@ -288,6 +339,17 @@ def main():
          and 'arh ' in nxt.stdout and flagged == unreviewed,
          f'status lists {listed}/{claimed} iterations; ledger check flags {sorted(flagged)}, '
          f'expected {sorted(unreviewed)}; next names an arh command {"arh " in nxt.stdout}')
+
+    # E17 after E10: a concluded iteration's directory deleted and the ledger re-rendered.
+    n, it = iteration('E17 concluded iteration deleted')
+    must('ask', '-n', n)
+    must('gate', 'results', '-n', n)
+    shutil.rmtree(it)
+    render = arh('ledger', 'render')
+    check = arh('ledger', 'check')
+    case('E17', 'concluded iteration deleted, ledger re-rendered', 'ledger check fails',
+         render.returncode == 0 and check.returncode != 0 and f'iteration {n} — in the claim registry' in check.stdout,
+         next((l for l in check.stdout.splitlines() if 'claim registry' in l), check.stdout))
 
     results.sort(key=lambda r: (int(re.match(r'E(\d+)', r['id']).group(1)), r['id']))
     commit = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, capture_output=True, text=True).stdout.strip()

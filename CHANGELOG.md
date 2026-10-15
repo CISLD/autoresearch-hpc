@@ -6,7 +6,46 @@ Versions are protocol/tooling versions; see `PROTOCOL.md`.
 ## [Unreleased]
 
 Changes from the field feedback of a 34-iteration structural-variant study run on Slurm and
-Singularity with two producer accounts and two verifier families.
+Singularity with two producer accounts and two verifier families, and from an external review
+of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studies need
+`arh migrate --apply`, which starts the freeze journal.
+
+### Changed (external review of v0.3.0)
+- **An `UNSOUND` verdict no longer concludes an iteration by itself.** v0.3.0 accepted
+  `SOUND`, `QUALIFIED` and `UNSOUND` alike once the hashes matched, and three benchmark
+  iterations concluded on an `UNSOUND` review. `arh gate results` now fails until each
+  `UNSOUND` review is answered in `REVIEW_RESPONSE.md` with `Verdict: rebutted, because
+  <reason>`; `Verdict: accepted` leaves the iteration unconcluded, and a later, milder review
+  does not answer an earlier one. `unsound_review = allow` (`project.md`) restores the old
+  behaviour. The ledger's cross-check column shows the verdicts (`QUALIFIED`,
+  `UNSOUND (rebutted)`) instead of `yes`, and `--skeleton` adds the verdict line.
+  `PROTOCOL.md` §6.8.
+- **Empty sections no longer freeze.** A pre-declaration with every required heading present
+  and every body empty froze. Each required section now needs text that is not the template's
+  own. `PROTOCOL.md` §3.1.
+- **A plan is frozen once.** Deleting `PREDECLARATION.sha256` while `results/` was moved aside
+  let an edited plan be frozen again and concluded. `arh gate predeclare` now appends every
+  freeze to `.arh/freezes.tsv`, a hash chain, and refuses an iteration the journal already
+  holds, or one that already has a run receipt or a review. `arh gate results` fails when the
+  freeze is not the journalled one. `arh claim` marks new iterations `freeze_journal: true` so
+  `arh migrate` never backfills a row that was removed. `PROTOCOL.md` §3.5–§3.7.
+- **`arh ledger check` reads the claim registry and the journal.** A deleted concluded
+  iteration left it passing. It now fails when a claimed number has no directory, when the
+  journal does not chain, and when a frozen iteration and the journal disagree. §8.3.
+
+### Added (external review of v0.3.0)
+- `freeze_anchor` (`project.md`): a command run at each freeze, with `{iteration}` and
+  `{sha256}`, whose first output line is journalled; point it at a pushed commit, a
+  timestamping service or a scheduler job comment to give freezes a time the project cannot
+  rewrite. If it fails, nothing is frozen.
+- `arh gate results` reports the runs of the iteration and names files a completed run used
+  that were edited and run again (§5.9a).
+- Conformance scenarios E14–E17; E1's description now says what it tests (unfilled
+  placeholders).
+
+### Fixed
+- `harness/README.md` described an earlier ten-study state of the replication benchmark; its
+  counts now match the eleven-study record the paper reports.
 
 ### Added
 - **Durable knowledge lives in the project.** Operator directives, data locations and tool

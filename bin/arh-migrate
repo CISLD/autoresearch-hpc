@@ -122,6 +122,18 @@ if not found or found.group(1) != protocol:
     rewrites[version] = new
     changes.append(f'{version.relative_to(root)}: protocol {old} -> {protocol}')
 
+# The freeze journal (.arh/freezes.tsv) records each freeze once, so a deleted freeze file cannot
+# make a plan freezable again. Studies frozen before it existed get one row per frozen iteration,
+# marked as backfilled: the journal can vouch for those freezes only from the migration onwards.
+sys.path.insert(0, str(home / 'lib'))
+import record  # noqa: E402
+iters = root / config_value(cfg / 'project.md', 'iterations_dir', 'iterations')
+journal = {r['iteration'] for r in (record.journal_rows(root) or [])} if state == 'migrated' else set()
+unjournalled = [d.name for d in sorted(iters.glob('iteration*'))
+                if (d / 'PREDECLARATION.sha256').is_file() and d.name[9:] not in journal and not record.journal_era(d)]
+if unjournalled:
+    changes.append(f'.arh/freezes.tsv: freeze journal rows backfilled for {len(unjournalled)} frozen iteration(s)')
+
 if not changes:
     print('  nothing to do: the study is already on the current layout')
     sys.exit(0)
@@ -134,7 +146,8 @@ if not apply:
 stamp = now.replace('-', '').replace(':', '')
 tmp = root / f'.migration-backup-{stamp}.tgz'
 with tarfile.open(tmp, 'w:gz') as tar:
-    for p in (cfg, state_dir / 'VERSION', state_dir / 'registry.tsv', root / 'rules', ledger, agents, root / 'skills'):
+    for p in (cfg, state_dir / 'VERSION', state_dir / 'registry.tsv', state_dir / 'freezes.tsv', root / 'rules', ledger,
+              agents, root / 'skills'):
         if p.exists():
             tar.add(p, arcname=str(p.relative_to(root)))
 if state == 'legacy':
@@ -147,6 +160,8 @@ for path, content in rewrites.items():
 for src, dst in stale_skills:
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
+if unjournalled:
+    record.backfill(root, iters, now)
 print(f'\nbackup: {backup.relative_to(root)}')
 print('next: arh ledger render && arh ledger check'
       + ('; replace dl and DL_* in your own scripts by hand' if state == 'legacy' else ''))

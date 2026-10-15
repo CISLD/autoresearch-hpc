@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/HudoGriz/autoresearch-hpc/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/HudoGriz/autoresearch-hpc/actions/workflows/test.yml/badge.svg"></a>
   <a href="docs/validation.md"><img alt="Status: experimental" src="https://img.shields.io/badge/status-experimental-orange"></a>
-  <a href="PROTOCOL.md"><img alt="Protocol 0.2.0" src="https://img.shields.io/badge/protocol-0.2.0-blue"></a>
+  <a href="PROTOCOL.md"><img alt="Protocol 0.3.0" src="https://img.shields.io/badge/protocol-0.3.0-blue"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-green"></a>
   <a href="https://doi.org/10.5281/zenodo.22937869"><img alt="DOI" src="https://zenodo.org/badge/DOI/10.5281/zenodo.22937869.svg"></a>
 </p>
@@ -115,9 +115,9 @@ flowchart LR
 
 | Phase | What happens | Core interface | Durable evidence |
 |---|---|---|---|
-| **1 · Pre-declare** | Claim one question, define the estimand, controls, detection limit and acceptance criteria, then freeze the plan | `arh claim` · `arh new` · `arh gate predeclare` | `CLAIM.json` · `README.md` · `PREDECLARATION.sha256` |
+| **1 · Pre-declare** | Claim one question, define the estimand, controls, detection limit and acceptance criteria, then freeze the plan once | `arh claim` · `arh new` · `arh gate predeclare` | `CLAIM.json` · `README.md` · `PREDECLARATION.sha256` · `.arh/freezes.tsv` |
 | **2 · Execute** | Run the declared workflow with pinned scientific tooling on the configured compute backend | `arh env` · `arh submit` · `arh run` · `arh wait` | scripts · workflow metadata · run receipts · logs · results |
-| **3 · Review & record** | Report the declared quantity, cross-check it, answer every numbered finding, gate the result and update the project record | `arh ask` · `arh gate results` · `arh ledger` | report · cross-check record · review response · `PROGRESS.md` |
+| **3 · Review & record** | Report the declared quantity, cross-check it, answer every numbered finding and rebut or accept an `UNSOUND` verdict, gate the result and update the project record | `arh ask` · `arh gate results` · `arh ledger` | report · cross-check record · review response · `PROGRESS.md` |
 
 Phase 2 runs on infrastructure you already know:
 
@@ -136,6 +136,7 @@ my-study/
 ├── DIRECTIVES.md                    operator directives, data inventory, external findings
 ├── GOTCHAS.md                       silent failure modes, each with an assertion
 ├── .arh/config/                     site, project and harness settings
+├── .arh/registry.tsv · freezes.tsv  every claim, and every freeze in a hash chain
 ├── rules/                           standing research rules
 ├── iterations/
 │   └── iterationN/
@@ -146,7 +147,7 @@ my-study/
 │       ├── scripts/  resources/  metadata/
 │       ├── results/  logs/          results, run receipts, traces
 │       ├── CROSSCHECK_*.md          foreign-family reviews
-│       └── REVIEW_RESPONSE.md       what was done about each finding
+│       └── REVIEW_RESPONSE.md       what was done about each finding and each UNSOUND verdict
 └── verification/                    re-examinations of existing results
 ```
 
@@ -232,7 +233,7 @@ This is a cooperative research-integrity system, not a hostile-code sandbox or a
 
 | | |
 |---|---|
-| **Protocol** | [Normative protocol v0.2.0](PROTOCOL.md) |
+| **Protocol** | [Normative protocol v0.3.0](PROTOCOL.md) |
 | **Agent contract** | [AGENTS.md](AGENTS.md) |
 | **HPC execution** | [Nextflow, schedulers, containers, receipts and stopping a run](docs/hpc-execution.md) |
 | **Skills & model budget** | [Skills, harnesses and bounded review](docs/skills-and-token-budget.md) |

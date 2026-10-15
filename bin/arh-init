@@ -61,8 +61,10 @@ sed -e "s|{{PROJECT}}|$(basename "$target")|g" "$ARH_HOME/templates/DIRECTIVES.m
 cp "$ARH_HOME/AGENTS.md" "$target/AGENTS.md"
 mkdir -p "$target/skills"; cp -r "$ARH_HOME/skills/." "$target/skills/"
 ln -sf AGENTS.md "$target/CLAUDE.md"
+# The protocol version comes from PROTOCOL.md, as for `arh --version`, `arh doctor` and `arh migrate`;
+# a copy here stayed at 0.2.0 when the protocol moved on.
 cat > "$target/.arh/VERSION" <<EOF
-protocol = 0.2.0
+protocol = $(sed -n 's/^# The AutoResearch HPC protocol, v//p' "$ARH_HOME/PROTOCOL.md")
 created  = $(arh_now)
 by       = $(arh_agent_name)
 EOF

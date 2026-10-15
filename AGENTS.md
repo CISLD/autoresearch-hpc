@@ -58,6 +58,15 @@ prints a response to start from. The gate also lists numbers in the report that
 match no file under `results/`: write every reported value to a results file and
 copy it from there, never by hand.
 
+An `UNSOUND` verdict needs its own answer in the review's part of
+`REVIEW_RESPONSE.md`: `Verdict: rebutted, because <reason>` if the iteration
+stands, or `Verdict: accepted` if it does not. An accepted `UNSOUND` iteration
+stays unconcluded and the correction goes into a new iteration; asking for
+another review does not answer the first one. Every required section of the
+pre-declaration needs content of its own, and a plan is frozen once:
+`.arh/freezes.tsv` records each freeze, so deleting `PREDECLARATION.sha256` does
+not reopen it, and `arh ledger check` fails if an iteration directory is removed.
+
 To re-examine a result an iteration already produced, use the verification
 track instead of silently revising the original:
 

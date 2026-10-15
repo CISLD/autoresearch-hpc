@@ -218,9 +218,133 @@ harness_reviewer_cmd = python3 "{self.mock}" {{prompt}}{cmd_extra}
         (self.root/'.arh/config/site.md').write_text(f'```arh-config\ncontainer_runtime = apptainer\nimage_test = {image}\n```\n')
         self.call('run', 'test', '--', 'true', good=False)
 
-    def test_gate_surfaces_unsound_verdict(self):
+    def test_unsound_verdict_needs_a_recorded_rebuttal(self):
         self.configure("print('VERDICT: UNSOUND')")
-        self.ask(); result=self.gate(); self.assertIn('UNSOUND', result.stdout)
+        self.ask(); result=self.gate(good=False); self.assertIn('UNSOUND, with no recorded answer', result.stdout)
+        response = self.it / 'REVIEW_RESPONSE.md'
+        response.write_text('Verdict: accepted\n')
+        self.assertIn('the response accepts it', self.gate(good=False).stdout)
+        response.write_text('Verdict: rebutted\n')
+        self.assertIn('gives no reason', self.gate(good=False).stdout)
+        response.write_text('Verdict: rebutted, because the flagged step changes no reported value.\n')
+        self.assertIn('UNSOUND, rebutted by the producer', self.gate().stdout)
+        self.call('ledger', 'render')
+        self.assertIn('UNSOUND (rebutted)', (self.root / 'PROGRESS.md').read_text())
+        self.assertIn('Verdict: <rebutted', self.call('gate', 'results', '-n', '1', '--skeleton').stdout)
+
+    def test_unsound_verdict_is_only_reported_when_the_project_allows_it(self):
+        cfg = self.root / '.arh/config/project.md'
+        cfg.write_text(cfg.read_text().replace('unsound_review    = require-rebuttal', 'unsound_review    = allow'))
+        self.configure("print('VERDICT: UNSOUND')")
+        self.ask(); self.assertIn('WARN', self.gate().stdout)
+
+    def test_a_milder_second_review_does_not_answer_an_unsound_one(self):
+        self.configure("print('VERDICT: UNSOUND')")
+        self.ask()
+        self.configure("print('VERDICT: SOUND')")
+        self.call('ask', '-n', '1', '--note', 'asking again')
+        self.assertIn('UNSOUND, with no recorded answer', self.gate(good=False).stdout)
+
+    def declare(self, title, body):
+        n = self.call('claim', '-t', title).stdout.split()[0]
+        self.call('new', '-n', n)
+        it = self.root / f'iterations/iteration{n}'
+        (it / 'README.md').write_text(body)
+        return n, it
+
+    def test_empty_sections_do_not_freeze(self):
+        headings = ['Question', 'Estimand', 'Instrument', 'Acceptance criteria', 'Negative controls', 'Detection limit', 'Prediction']
+        n, it = self.declare('empty', ''.join(f'## {h}\n\n<!-- nothing yet -->\n\n' for h in headings))
+        result = self.call('gate', 'predeclare', '-n', n, good=False)
+        self.assertIn('section empty: Question', result.stdout)
+        self.assertFalse((it / 'PREDECLARATION.sha256').exists())
+        # The template's own instructions are not content either.
+        template = (ROOT / 'templates/iteration/README.md').read_text()
+        boiler = ''.join(f'## {h}\n\n' for h in headings[:2]) + template[template.index('## 3. Instrument'):]
+        boiler = re.sub(r'(?ms)^<.*?>\n', 'Filled.\n', boiler).replace('## 3. Instrument\n\nFilled.', '## 3. Instrument\n')
+        (it / 'README.md').write_text(boiler)
+        self.assertIn('section empty: Instrument', self.call('gate', 'predeclare', '-n', n, good=False).stdout)
+
+    def test_deleting_the_freeze_does_not_reopen_the_plan(self):
+        frozen = (self.it / 'PREDECLARATION.sha256').read_text()
+        (self.it / 'PREDECLARATION.sha256').unlink()
+        self.report.unlink()
+        result = self.call('gate', 'predeclare', '-n', '1', good=False)
+        self.assertIn('a plan is frozen once', result.stderr)
+        # A hand-written freeze of an edited plan is caught at the results gate and by the ledger.
+        (self.it / 'README.md').write_text((self.it / 'README.md').read_text() + 'Edited to fit.\n')
+        digest = hashlib.sha256((self.it / 'README.md').read_bytes()).hexdigest()
+        (self.it / 'PREDECLARATION.sha256').write_text(digest + '\n' + frozen.splitlines()[1] + '\n')
+        self.report.write_text('Negative controls reject failures. Detection limit: one check. Candidate only.\n')
+        self.ask()
+        self.assertIn('the plan was frozen again', self.gate(good=False).stdout)
+        self.call('ledger', 'render')
+        self.assertIn('frozen again', self.call('ledger', 'check', good=False).stdout)
+
+    def test_a_run_or_review_blocks_a_late_declaration(self):
+        n, it = self.declare('late', (self.it / 'README.md').read_text())
+        receipt = it / 'logs/nextflow/run/attempt-x/run.json'
+        receipt.parent.mkdir(parents=True)
+        receipt.write_text('{"exit_code": 0}\n')
+        self.assertIn('1 run receipt(s)', self.call('gate', 'predeclare', '-n', n, good=False).stdout)
+
+    def test_journal_is_a_hash_chain(self):
+        self.ask()
+        self.declare('second', (self.it / 'README.md').read_text())
+        self.call('gate', 'predeclare', '-n', '2')
+        journal = self.root / '.arh/freezes.tsv'
+        rows = journal.read_text().splitlines()
+        self.assertEqual([r.split('\t')[0] for r in rows[1:]], ['1', '2'])
+        self.call('ledger', 'render')
+        self.call('ledger', 'check')
+        journal.write_text('\n'.join([rows[0], rows[2]]) + '\n')     # iteration 1's row removed
+        self.assertIn('does not chain', self.call('ledger', 'check', good=False).stdout)
+
+    def test_ledger_check_reads_the_claim_registry(self):
+        self.declare('to be deleted', 'x')
+        self.call('ledger', 'render'); self.call('ledger', 'check', good=None)
+        shutil.rmtree(self.root / 'iterations/iteration2')
+        self.call('ledger', 'render')
+        self.assertIn('iteration 2 — in the claim registry, but its directory is gone',
+                      self.call('ledger', 'check', good=False).stdout)
+
+    def test_freeze_anchor_is_journalled_and_a_failing_anchor_freezes_nothing(self):
+        cfg = self.root / '.arh/config/project.md'
+        cfg.write_text(cfg.read_text().replace('freeze_anchor     =', 'freeze_anchor     = echo anchored {iteration} {sha256}'))
+        n, it = self.declare('anchored', (self.it / 'README.md').read_text())
+        self.call('gate', 'predeclare', '-n', n)
+        row = (self.root / '.arh/freezes.tsv').read_text().splitlines()[-1].split('\t')
+        self.assertEqual(row[3], f'anchored {n} {row[1]}')
+        cfg.write_text(cfg.read_text().replace('echo anchored {iteration} {sha256}', 'false'))
+        n, it = self.declare('unanchored', (self.it / 'README.md').read_text())
+        self.assertIn('freeze_anchor failed', self.call('gate', 'predeclare', '-n', n, good=False).stderr)
+        self.assertFalse((it / 'PREDECLARATION.sha256').exists())
+
+    def test_scripts_edited_after_a_completed_run_are_named(self):
+        for i, (digest, code) in enumerate([('a', 0), ('b', 0)]):
+            receipt = self.it / f'logs/nextflow/main/attempt-{i}/run.json'
+            receipt.parent.mkdir(parents=True)
+            receipt.write_text(json.dumps({'started': f'2026-10-15T0{i}', 'exit_code': code, 'workflow': 'w.nf',
+                                           'workflow_sha256': 'w', 'script_sha256': {'s.py': digest}}))
+        self.ask()
+        result = self.gate()
+        self.assertIn('2 attempt(s) of 1 named workflow(s), 2 completed', result.stdout)
+        self.assertIn('1 file(s) a completed run used were edited and run again: s.py', result.stdout)
+
+    def test_migrate_backfills_the_journal_but_never_a_journalled_iteration(self):
+        journal = self.root / '.arh/freezes.tsv'
+        claim = json.loads((self.it / 'CLAIM.json').read_text())
+        claim.pop('freeze_journal'); (self.it / 'CLAIM.json').write_text(json.dumps(claim))
+        journal.unlink()                # a study frozen before the journal existed
+        self.ask()
+        self.assertIn('no freeze journal', self.gate().stdout)
+        self.assertIn('backfilled for 1', self.call('migrate', str(self.root), '--apply').stdout)
+        self.assertIn('backfilled by arh migrate', journal.read_text())
+        self.gate()
+        n, it = self.declare('journalled', (self.it / 'README.md').read_text())
+        self.call('gate', 'predeclare', '-n', n)
+        journal.write_text(''.join(journal.read_text().splitlines(True)[:2]))   # its row removed
+        self.assertNotIn('backfilled', self.call('migrate', str(self.root)).stdout)
 
     def test_unchanged_review_reused(self):
         self.ask(); result=self.ask()

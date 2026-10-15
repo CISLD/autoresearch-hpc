@@ -70,6 +70,11 @@ case "$sub" in
     [ -f "$readme" ] || arh_die "no pre-declaration at $readme (run: arh new -n $n)"
     arh_guard_path "$dir/PREDECLARATION.sha256"
     [ ! -e "$dir/PREDECLARATION.sha256" ] || arh_die "already frozen; corrections require a new iteration"
+    # The freeze journal outlives the freeze file: deleting PREDECLARATION.sha256 does not make a plan
+    # freezable again (external review of v0.3.0, probe 3).
+    if journalled=$(python3 "$ARH_HOME/lib/record.py" frozen "$ARH_ROOT" "$n"); then
+      arh_die "iteration $n was frozen at $(printf '%s' "$journalled" | cut -f3) (.arh/freezes.tsv); its freeze file is gone, but a plan is frozen once. Corrections require a new iteration"
+    fi
     printf 'gate: pre-declaration, iteration %s\n' "$n"
     arh_lease_touch "$dir" "arh gate predeclare"
 
@@ -81,22 +86,18 @@ case "$sub" in
     else
       arh_ok "results/ is empty"
     fi
+    # Nor a run or a review: either means the analysis already happened.
+    ran=$(find "$dir/logs" -path '*/attempt-*/run.json' 2>/dev/null | grep -c . || true)
+    reviewed=$(find "$dir" -maxdepth 1 -name 'CROSSCHECK_*.md' 2>/dev/null | grep -c . || true)
+    if [ "$ran" -gt 0 ] || [ "$reviewed" -gt 0 ]; then
+      arh_fail "this iteration already has $ran run receipt(s) and $reviewed review(s) — it cannot be pre-declared now"
+      fails=$((fails+1))
+    fi
 
-    # required_sections is a comma-separated list of headings; each must appear
-    # as a heading in the README. Split on commas so multi-word names survive.
-    old_ifs=$IFS; IFS=','
-    for sec in $(arh_config_get "$ARH_PROJ" required_sections ""); do
-      IFS=$old_ifs
-      sec=$(printf '%s' "$sec" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
-      [ -n "$sec" ] || continue
-      if grep -qiE "^#{1,6}.*$(printf '%s' "$sec" | sed 's/[][\.*^$/]/\\&/g')" "$readme"; then
-        arh_ok "section: $sec"
-      else
-        arh_fail "section missing: $sec"; fails=$((fails+1))
-      fi
-      IFS=','
-    done
-    IFS=$old_ifs
+    # required_sections is a comma-separated list of headings; each must appear as a heading in the
+    # README with something under it. Seven headings over empty bodies froze in v0.3.0.
+    python3 "$ARH_HOME/lib/record.py" sections "$readme" "$ARH_HOME/templates/iteration/README.md" \
+      "$(arh_config_get "$ARH_PROJ" required_sections "")" || fails=$((fails+$?))
 
     # Placeholders left in the template are an incomplete pre-declaration.
     # Template placeholders open at column 0 and may wrap over several lines,
@@ -140,11 +141,25 @@ case "$sub" in
     if [ "$fails" -gt 0 ]; then
       printf '\ngate FAILED (%s). Nothing was frozen; fix and re-run.\n' "$fails" >&2; exit 1
     fi
-    ( set -C; { arh_sha256 "$readme"; arh_now; [ -z "$imports" ] || printf '%s\n' "$imports"
+    sha=$(arh_sha256 "$readme"); at=$(arh_now); anchor=""
+    # freeze_anchor (project.md) records the freeze somewhere the project cannot rewrite: a pushed git
+    # commit, a timestamping service, a scheduler job comment. Its first output line goes into the
+    # journal. If it fails, nothing is frozen.
+    anchor_cmd=$(arh_config_get "$ARH_PROJ" freeze_anchor "")
+    if [ -n "$anchor_cmd" ]; then
+      anchor_cmd=${anchor_cmd//\{iteration\}/$n}; anchor_cmd=${anchor_cmd//\{sha256\}/$sha}
+      anchor_out=$(cd "$ARH_ROOT" && bash -c "$anchor_cmd" 2>&1) \
+        || arh_die "freeze_anchor failed, so nothing was frozen: $(printf '%s' "$anchor_out" | tail -1)"
+      anchor=$(printf '%s\n' "$anchor_out" | head -1)
+    fi
+    ( set -C; { printf '%s\n%s\n' "$sha" "$at"; [ -z "$imports" ] || printf '%s\n' "$imports"
                 [ -z "$smoke_line" ] || printf '%s\n' "$smoke_line"; } > "$dir/PREDECLARATION.sha256" ) \
       || arh_die "freeze already exists"
+    python3 "$ARH_HOME/lib/record.py" append "$ARH_ROOT" "$n" "$sha" "$at" "$anchor" >/dev/null \
+      || arh_die "the freeze of iteration $n could not be journalled in .arh/freezes.tsv"
     printf '\ngate PASSED. Pre-declaration frozen:\n  %s\n' "$(head -1 "$dir/PREDECLARATION.sha256")"
-    printf 'The README hash is frozen; later edits will fail validation. Corrections go in a new iteration.\n'
+    printf 'The README hash is frozen and journalled; later edits will fail validation. Corrections go in a new iteration.\n'
+    [ -z "$anchor" ] || printf 'Anchored: %s\n' "$anchor"
     ;;
 
   results)
@@ -170,6 +185,20 @@ case "$sub" in
         arh_info "now:    $got"
         fails=$((fails+1))
       fi
+      # The freeze must be the one the journal recorded when the plan was first frozen.
+      if journalled=$(python3 "$ARH_HOME/lib/record.py" frozen "$ARH_ROOT" "$n"); then
+        if [ "$(printf '%s' "$journalled" | cut -f2)" = "$want" ]; then
+          arh_ok "freeze matches the journal ($(printf '%s' "$journalled" | cut -f3))"
+        else
+          arh_fail "PREDECLARATION.sha256 differs from the freeze journalled at $(printf '%s' "$journalled" | cut -f3): the plan was frozen again"
+          fails=$((fails+1))
+        fi
+      elif [ -f "$ARH_STATE/freezes.tsv" ] || python3 "$ARH_HOME/lib/record.py" era "$dir"; then
+        arh_fail "iteration $n is not in the freeze journal: its freeze was not made by arh gate predeclare"
+        fails=$((fails+1))
+      else
+        printf '  WARN no freeze journal (.arh/freezes.tsv); run arh migrate --apply to start one\n'
+      fi
     fi
 
     # A confirmation's frozen decisions must still be the ones it applied.
@@ -182,6 +211,7 @@ case "$sub" in
     fi
 
     # Work that ran outside arh submit has no receipt; say so instead of letting the record imply one.
+    python3 "$ARH_HOME/lib/record.py" runs "$dir"
     receipts=$(find "$dir/logs" -path '*/attempt-*/run.json' 2>/dev/null | grep -c . || true)
     if [ -n "$(find "$dir/results" -type f ! -path '*/report/*' 2>/dev/null | head -1)" ] && [ "$receipts" = 0 ]; then
       printf '  WARN results exist but no arh submit run receipt does: what produced them is not on record\n'
@@ -215,10 +245,13 @@ case "$sub" in
     if [ "$(arh_config_get "$ARH_PROJ" require_crosscheck true)" = true ]; then
       if arh_crosschecks "$dir" | grep -q .; then
         # Not "foreign": a project may accept same-family review, and describe says which ones were.
-        arh_ok "eligible review(s); verdicts are evidence, not endorsement"
+        arh_ok "eligible review(s); a verdict is evidence, not endorsement"
         python3 "$ARH_HOME/lib/harness.py" describe "$dir"
         # Protocol 6.5: every numbered finding is answered in REVIEW_RESPONSE.md (review_response).
         python3 "$ARH_HOME/lib/findings.py" check "$dir" "$(arh_config_get "$ARH_PROJ" review_response require)" \
+          || fails=$((fails+1))
+        # An UNSOUND verdict concludes only with a recorded rebuttal (unsound_review).
+        python3 "$ARH_HOME/lib/findings.py" verdicts "$dir" "$(arh_config_get "$ARH_PROJ" unsound_review require-rebuttal)" \
           || fails=$((fails+1))
       else
         arh_fail "no eligible cross-check; inspect execution metadata and artifact hashes"
