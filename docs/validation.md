@@ -2,18 +2,23 @@
 
 ## Current baseline
 
-A run on 2026-10-06 at commit `1d98801` against a configured local site (Nextflow 26.04.6
-from a host micromamba environment, scientific tasks through Singularity-compatible
-Apptainer on Linux, an NVIDIA TITAN RTX on the host) passed:
+A run on 2026-10-15 at commit `8aa7541` (clean worktrees) passed:
 
 | Suite | Command | Result |
 |---|---|---|
 | Core protocol checks | `test/run_tests.sh` | 173 / 173 |
-| Boundary regressions | `ARH_TEST_GPU=1 python3 test/test_hardening.py` | 98 / 98 (1 network case skipped) |
-| Protocol conformance matrix | `python3 test/conformance.py --site SITE` | 14 / 14, locally and on Slurm with the project on CephFS |
+| Boundary regressions | `ARH_TEST_GPU=1 python3 test/test_hardening.py` | 108 / 108 (1 network case skipped) |
+| Protocol conformance matrix | `python3 test/conformance.py --site SITE` | 18 / 18 (E1–E17), locally (xfs) and on Slurm with the project on CephFS |
 | Deterministic synthetic example | `bash examples/mean-shift/check.sh` | OK |
 
-The v0.3.0 release (commit `77b7cfc`) passed 158 / 158, 70 / 70 and 12 / 12 on 2026-09-21.
+The Slurm run raced 12 claims from 4 tasks on two compute nodes
+(`srun -p priority -N 2 --ntasks-per-node 2`), all distinct; the cluster had no more free CPUs that day.
+The local and test sites were a local executor with Nextflow 26.04.6 and Singularity-compatible
+Apptainer, and an NVIDIA TITAN RTX on the host.
+
+Earlier baselines: commit `1d98801` passed 173 / 173, 98 / 98 and 14 / 14 (E1–E13) on 2026-10-06; the
+v0.3.0 release (commit `77b7cfc`) passed 158 / 158, 70 / 70 and 12 / 12 on 2026-09-21, and its matrix
+again at the tag on 2026-09-24, locally and on Slurm with 96 claims raced from four nodes.
 
 ## Protocol conformance matrix
 
