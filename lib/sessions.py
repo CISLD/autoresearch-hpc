@@ -16,6 +16,7 @@ report. The record now names them from three sources, without capturing transcri
 """
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -70,6 +71,35 @@ def checkpoints(directory):
     return out
 
 
+def toplevel(directory):
+    try:
+        top = subprocess.run(['git', '-C', str(directory), 'rev-parse', '--show-toplevel'],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return top.stdout.strip() if top.returncode == 0 else None
+
+
+def explain(directory, checkpoint):
+    """What Entire recorded for a checkpoint, from `entire checkpoint explain ID --json`:
+    [{session_id, agent, model, tokens}], or None when Entire is not installed or cannot say."""
+    exe, top = shutil.which('entire'), toplevel(directory)
+    if not exe or not top:
+        return None
+    try:
+        out = subprocess.run([exe, 'checkpoint', 'explain', checkpoint, '--json'], cwd=top,
+                             capture_output=True, text=True, timeout=60)
+        data = json.loads(out.stdout)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    sessions = []
+    for s in data.get('sessions') or []:
+        usage = s.get('token_usage') or {}
+        sessions.append(dict(session_id=s.get('session_id'), agent=s.get('agent'), model=s.get('model'),
+                             tokens=sum(v for k, v in usage.items() if k.endswith('_tokens') and isinstance(v, int))))
+    return sessions
+
+
 def dispatches(directory):
     out = []
     for run in sorted((Path(directory) / 'metadata/dispatch').glob('[0-9][0-9][0-9]/run.json')):
@@ -84,8 +114,15 @@ def dispatches(directory):
 
 def as_json(directory):
     found = checkpoints(directory)
-    return dict(sessions=[g['id'] for g in grouped(directory)], dispatches=[d['session'] for d in dispatches(directory)],
-                entire_checkpoints=sorted({i for _, ids in found or [] for i in ids}))
+    ids = sorted({i for _, ids in found or [] for i in ids})
+    out = dict(sessions=[g['id'] for g in grouped(directory)], dispatches=[d['session'] for d in dispatches(directory)],
+               entire_checkpoints=ids)
+    # With Entire installed, which agent and model each checkpointed session ran: the model a
+    # session actually used, which the harness configuration alone does not prove.
+    details = {i: explain(directory, i) for i in ids}
+    if any(v is not None for v in details.values()):
+        out['entire_sessions'] = {i: v for i, v in details.items() if v is not None}
+    return out
 
 
 def show(directory):
@@ -105,7 +142,13 @@ def show(directory):
     else:
         print('Entire checkpoints (transcripts, prompts and tool calls; https://github.com/entireio/cli):')
         for commit, ids in found:
-            print(f"  {', '.join(ids)}  in commit {commit[:12]}")
+            for i in ids:
+                print(f"  {i}  in commit {commit[:12]}")
+                details = explain(directory, i)
+                for s in details or []:
+                    print(f"      {s['agent']} ({s['model']}), session {s['session_id']}, {s['tokens']} tokens")
+                print(f"      read it: entire checkpoint explain {i}" if details is not None
+                      else '      read it with Entire CLI: entire checkpoint explain <id>')
 
 
 if __name__ == '__main__':

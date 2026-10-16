@@ -688,6 +688,31 @@ arh('dispatch', 'report', '-n', n, '--outcome', 'concluded', '--summary', 'The f
         self.assertIn('could not run', refused.stderr)
         self.assertFalse(list(self.it.glob('CROSSCHECK_*')))
 
+    # The JSON shape Entire CLI 0.11.5 printed for a real checkpoint (2026-10-16), trimmed.
+    ENTIRE_JSON = {"checkpoint_id": "01JFIXTURECHECKPOINT0000AB", "sessions": [{
+        "index": 0, "session_id": "1ef98e50-36fd-4e2a-813b-75343ec1a214", "agent": "Claude Code",
+        "model": "claude-opus-5-5", "token_usage": {"input_tokens": 4, "cache_creation_tokens": 15218,
+                                                   "cache_read_tokens": 30147, "output_tokens": 420,
+                                                   "api_call_count": 2}}]}
+
+    def test_entire_supplies_agent_model_and_tokens_when_installed(self):
+        git = ['git', '-C', str(self.root), '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.org',
+               '-c', 'commit.gpgsign=false']
+        subprocess.run(git + ['init', '-q'], check=True)
+        subprocess.run(git + ['add', 'iterations/iteration1'], check=True)
+        subprocess.run(git + ['commit', '-q', '-m', 'iteration 1\n\nEntire-Checkpoint: 01JFIXTURECHECKPOINT0000AB'], check=True)
+        bindir = Path(self.temp.name) / 'entire-bin'; bindir.mkdir()
+        stub = bindir / 'entire'
+        stub.write_text('#!/usr/bin/env python3\nimport json, sys\n'
+                        'assert sys.argv[1:3] == ["checkpoint", "explain"] and "--json" in sys.argv\n'
+                        f'print(json.dumps({self.ENTIRE_JSON!r}))\n'); stub.chmod(0o755)
+        self.env['PATH'] = f"{bindir}{os.pathsep}{self.env['PATH']}"
+        shown = self.call('sessions', '-n', '1').stdout
+        self.assertIn('Claude Code (claude-opus-5-5), session 1ef98e50-36fd-4e2a-813b-75343ec1a214, 45789 tokens', shown)
+        self.ask(); self.gate()
+        receipt = json.loads((self.it / 'metadata/conclusions.jsonl').read_text().splitlines()[-1])
+        self.assertEqual(receipt['entire_sessions']['01JFIXTURECHECKPOINT0000AB'][0]['model'], 'claude-opus-5-5')
+
     def test_a_milder_second_review_does_not_answer_an_unsound_one(self):
         self.configure("print('VERDICT: UNSOUND')")
         self.ask()
