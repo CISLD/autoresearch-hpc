@@ -29,6 +29,11 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   `WITHDRAWN`; a `MAINTAINED` answer blocks in every mode but `allow`.
   `ask_max_adjudications` (default 1) limits judgments per review. `require-rebuttal` keeps
   the unjudged rebuttal. `PROTOCOL.md` §6.8.
+- **Integrations instead of custom code** ([docs/integrations.md](docs/integrations.md)): Entire
+  CLI for agent sessions and transcripts, gitleaks for credential rules, basic-memory for
+  searching findings, each optional and checked on 2026-10-16 with the versions named there.
+  Omnigent was tried as a controller command and does not run on a RHEL 9 node yet (tmux 3.3
+  needed).
 - **gitleaks's maintained rules are applied when it is installed.** ARH's credential check
   (`arh ask`, `delegate`, `evoke`, dispatch briefs and logs, `arh memory`) used only a short
   built-in list of token shapes. With `secret_scanner = auto`, the default, gitleaks's rules are

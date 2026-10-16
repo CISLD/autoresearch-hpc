@@ -245,6 +245,7 @@ This is a cooperative research-integrity system, not a hostile-code sandbox or a
 | **Skills & model budget** | [Skills, harnesses and bounded review](docs/skills-and-token-budget.md) |
 | **External generators** | [Select, configure and safely evoke specialist research systems](docs/external-generators.md) |
 | **Unattended agents** | [Running producer and reviewer sessions headless](docs/headless.md) |
+| **Integrations** | [Entire, gitleaks, basic-memory and Omnigent: what ARH uses them for, checked versions](docs/integrations.md) |
 | **Validation** | [Tested behavior and limitations](docs/validation.md) |
 | **Related work** | [What this composes with, and what it is not](docs/related-work.md) |
 | **Migration / hardening** | [`arh migrate` for 0.1 studies, and implementation notes](docs/migration-hardening.md) |
