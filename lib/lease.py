@@ -18,6 +18,7 @@ every other session: the main controller reads a dispatched iteration and does n
 """
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -102,6 +103,24 @@ def touch(directory, command, who):
               file=sys.stderr)
     lease['last'] = dict(time=now(), command=command, **{k: who[k] for k in ('agent', 'host')})
     save(directory, lease)
+    log_activity(directory, command, who)
+
+
+def harness_session():
+    """The session id the agent's own harness reports, from the variables named in session_env
+    (harnesses.md; exported by arh as ARH_SESSION_ENV), or None."""
+    for name in os.environ.get('ARH_SESSION_ENV', '').split():
+        if os.environ.get(name):
+            return f'{name}={os.environ[name]}'
+    return None
+
+
+def log_activity(directory, command, who):
+    """One line per arh command on the iteration: which agent session acted, and when."""
+    entry = dict(time=now(), command=command, agent=who.get('agent'), user=who.get('user'), host=who.get('host'),
+                 session=who.get('session'), harness_session=harness_session())
+    with open(Path(directory) / 'metadata/activity.jsonl', 'a') as log:
+        log.write(json.dumps(entry) + '\n')
 
 
 def take(directory, reason, who):

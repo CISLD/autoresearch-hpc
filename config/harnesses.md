@@ -77,6 +77,11 @@ dispatch_timeout = 0
 # Environment for controllers, which run headless and must wait in the foreground.
 dispatch_env = CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
 
+# Environment variables in which a harness reports its own session id. Every arh command on an
+# iteration records the first one set in metadata/activity.jsonl, so the record names the agent
+# sessions that acted on it (arh sessions -n N). Add your harness's variable if it sets one.
+session_env = CLAUDE_CODE_SESSION_ID
+
 verifier   = codex
 # Whether a cross-check must come from a different model family than the producer. Keep this
 # true unless you have a reason: a model does not reliably catch its own reasoning errors, so a

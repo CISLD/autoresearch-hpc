@@ -280,6 +280,10 @@ ledger MUST report each concluded iteration with the number of iterations that
 addressed its question before and after it, concluded or not, so that a result
 is never shown without the attempts that preceded it.
 
+8.7 The record SHOULD name the agent sessions that acted on each iteration. An
+implementation SHOULD link transcripts that another tool keeps rather than copy
+them, and MUST keep the output of sessions it starts itself (§6d.4).
+
 ## 9. The operator
 
 9.1 An operator challenge to a result MUST trigger a new iteration, never an

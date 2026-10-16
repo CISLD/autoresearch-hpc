@@ -23,6 +23,7 @@ import re
 import sys
 
 from harness import result_artifacts, valid_adjudications, valid_records
+import sessions
 
 QUESTION_ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
 
@@ -67,8 +68,9 @@ def conclude(directory):
     past = receipts(directory)
     if past and holds(past[-1], current):
         return
+    # Which agent sessions the conclusion came from; recorded, not part of what must still hold.
     record = dict(time=datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), question=question(directory),
-                  **current)
+                  **current, **sessions.as_json(directory))
     (directory / 'metadata').mkdir(exist_ok=True)
     with open(directory / 'metadata/conclusions.jsonl', 'a') as out:
         out.write(json.dumps(record, sort_keys=True) + '\n')

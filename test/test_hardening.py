@@ -556,6 +556,31 @@ arh('dispatch', 'report', '-n', n, '--outcome', 'concluded', '--summary', 'The f
         self.set_config('harnesses.md', executor='')
         self.assertIn('same model family', self.call('ask', '-n', n, '--terms-changed', 'executor removed', good=False).stderr)
 
+    def test_activity_names_the_harness_session(self):
+        self.env['CLAUDE_CODE_SESSION_ID'] = 'sess-abc'
+        self.call('note', '-n', '1', 'a note from a recorded session')
+        last = json.loads((self.it / 'metadata/activity.jsonl').read_text().splitlines()[-1])
+        self.assertEqual((last['command'], last['harness_session']), ('arh note', 'CLAUDE_CODE_SESSION_ID=sess-abc'))
+        shown = self.call('sessions', '-n', '1').stdout
+        self.assertIn('CLAUDE_CODE_SESSION_ID=sess-abc', shown)
+        self.assertIn('not in use (the project is not a git repository)', shown)
+        self.set_config('harnesses.md', session_env='NO_SUCH_VARIABLE')
+        self.call('note', '-n', '1', 'another note')
+        last = json.loads((self.it / 'metadata/activity.jsonl').read_text().splitlines()[-1])
+        self.assertIsNone(last['harness_session'])
+
+    def test_entire_checkpoints_are_linked_to_the_iteration(self):
+        git = ['git', '-C', str(self.root), '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.org',
+               '-c', 'commit.gpgsign=false']
+        subprocess.run(git + ['init', '-q'], check=True)
+        subprocess.run(git + ['add', 'iterations/iteration1'], check=True)
+        subprocess.run(git + ['commit', '-q', '-m', 'iteration 1 report\n\nEntire-Checkpoint: 01JFIXTURECHECKPOINT0000AB'], check=True)
+        self.assertIn('01JFIXTURECHECKPOINT0000AB', self.call('sessions', '-n', '1').stdout)
+        self.ask(); self.gate()
+        receipt = json.loads((self.it / 'metadata/conclusions.jsonl').read_text().splitlines()[-1])
+        self.assertEqual(receipt['entire_checkpoints'], ['01JFIXTURECHECKPOINT0000AB'])
+        self.assertTrue(receipt['sessions'])
+
     def test_a_milder_second_review_does_not_answer_an_unsound_one(self):
         self.configure("print('VERDICT: UNSOUND')")
         self.ask()

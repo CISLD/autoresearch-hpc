@@ -257,6 +257,10 @@ notices, and it ends as soon as its reply ends.
   `arh status --running` (live submissions with their trace counts, reviews, and
   the scheduler state of noted jobs). A pending review is not a reason to end the
   session.
+- `arh sessions -n N` names the agent sessions that ran `arh` commands on an
+  iteration (from `metadata/activity.jsonl`, with the session id your harness
+  reports), any dispatched controller, and, when the project is a git repository
+  recorded by Entire CLI, the `Entire-Checkpoint` of each commit that touched it.
 - `arh status` lists open iterations with who holds them and how long they have
   been idle. Every `arh` command on an iteration records itself in its lease and
   warns when another session holds it. Taking over an iteration an earlier session

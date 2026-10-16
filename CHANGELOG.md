@@ -29,6 +29,13 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   `WITHDRAWN`; a `MAINTAINED` answer blocks in every mode but `allow`.
   `ask_max_adjudications` (default 1) limits judgments per review. `require-rebuttal` keeps
   the unjudged rebuttal. `PROTOCOL.md` §6.8.
+- **The record names the agent sessions behind an iteration.** Every `arh` command on an
+  iteration appends to `metadata/activity.jsonl` with `ARH_SESSION` and the session id the
+  harness reports (`session_env`, default `CLAUDE_CODE_SESSION_ID`). Transcripts are not
+  captured by ARH: when the project is a git repository recorded by Entire CLI, the
+  `Entire-Checkpoint` trailers of commits that touched the iteration are linked instead.
+  `arh sessions -n N` shows all of it, and the conclusion receipt lists the sessions and
+  checkpoints. `PROTOCOL.md` §8.7.
 - **Per-iteration controllers (`orchestration = per-iteration`).** A main controller session
   claims iterations and runs `arh dispatch -n N --brief FILE`, which starts a fresh controller
   session for iteration N through the configured harness command template (any agent CLI, or a

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Which agent sessions acted on an iteration: arh activity, dispatched controllers, Entire checkpoints.
+set -euo pipefail
+# shellcheck source=lib/common.sh
+. "${ARH_HOME:?}/lib/common.sh"
+[ "${1-}" = --help ] && { echo 'usage: arh sessions -n N [--json]'; exit 0; }
+[ "${1-}" = -n ] && [ -n "${2-}" ] || arh_die 'usage: arh sessions -n N [--json]'
+case "$2" in *[!0-9]*) arh_die "iteration must be numeric" ;; esac
+arh_load_project
+dir="$ARH_ITERS/iteration$2"
+[ -d "$dir" ] || arh_die "no iteration $2"
+[ "${3-}" = --json ] && exec python3 "$ARH_HOME/lib/sessions.py" json "$dir"
+exec python3 "$ARH_HOME/lib/sessions.py" show "$dir"
