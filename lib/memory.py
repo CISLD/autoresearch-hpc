@@ -13,6 +13,11 @@ conclusion (the evidence changed) is shown as stale.
   memory.py list ROOT ITERS [all]              index: current findings (all: superseded and stale too)
   memory.py show ROOT ID                       one finding in full
   memory.py index ROOT ITERS LIMIT             JSON index for arh context
+  memory.py search ROOT ITERS QUERY            current findings containing every word of QUERY
+
+Searching is not ARH's job beyond that: `memory_search_cmd` in harnesses.md can name a Markdown
+knowledge tool instead (basic-memory: `bm tool search-notes {query} --project <name>`, with
+disable_permalinks and ensure_frontmatter_on_sync = false so it never rewrites a finding).
 """
 from datetime import datetime, timezone
 import json
@@ -37,11 +42,18 @@ def parse(path):
     match = re.match(r'^---\n(.*?)\n---\n(.*)$', text, re.S)
     if not match:
         return None
-    meta = {}
+    meta, key = {}, None
     for line in match.group(1).splitlines():
+        # A block list item, as a Markdown tool that reformats front matter writes lists.
+        if line.startswith('- ') and key and isinstance(meta.get(key), list):
+            meta[key].append(line[2:].strip())
+            continue
         key, _, value = line.partition(':')
-        value = value.strip()
-        meta[key.strip()] = json.loads(value) if value.startswith(('"', '[')) else value
+        key, value = key.strip(), value.strip()
+        try:
+            meta[key] = json.loads(value) if value.startswith(('"', '[')) else (value if value else [])
+        except ValueError:
+            meta[key] = value
     meta['text'] = match.group(2).strip()
     meta['path'] = str(path)
     if str(meta.get('iteration', '')).isdigit():
@@ -140,6 +152,18 @@ def index(root, iterations, limit):
                 details='arh memory show ID' if current else None)
 
 
+def search(root, iterations, query):
+    words = [w.lower() for w in query.split()]
+    found = entries(root)
+    replaced = superseding(found)
+    hits = [e for e in found if status(root, iterations, e, replaced) == 'current'
+            and all(w in (e['text'] + ' ' + str(e.get('title', ''))).lower() for w in words)]
+    for e in hits:
+        print(f"{e['id']:<8} it.{e['iteration']:<4} {e['text'].splitlines()[0][:110]}")
+    if not hits:
+        print('no current finding contains all of: ' + ' '.join(words))
+
+
 if __name__ == '__main__':
     cmd = sys.argv[1]
     if cmd == 'add':
@@ -148,6 +172,8 @@ if __name__ == '__main__':
         listing(sys.argv[2], sys.argv[3], len(sys.argv) > 4 and sys.argv[4] == 'all')
     elif cmd == 'show':
         show(sys.argv[2], sys.argv[3])
+    elif cmd == 'search':
+        search(sys.argv[2], sys.argv[3], sys.argv[4])
     elif cmd == 'index':
         print(json.dumps(index(sys.argv[2], sys.argv[3], int(sys.argv[4]))))
     else:

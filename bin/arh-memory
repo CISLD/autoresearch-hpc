@@ -9,6 +9,7 @@ usage:
   arh memory add -n N [--supersedes ID] TEXT   record a finding of concluded iteration N
   arh memory list [--all]                      current findings (--all: superseded and stale too)
   arh memory show ID                           one finding in full, with the evidence it cites
+  arh memory search QUERY                      search the findings (memory_search_cmd, else a word match)
 Findings are Markdown files with YAML front matter under knowledge/; any harness, reviewer or
 Markdown tool can read them. arh context -n N lists the current ones.
 USAGE
@@ -33,6 +34,17 @@ case "$sub" in
     exec python3 "$ARH_HOME/lib/memory.py" add "$ARH_ROOT" "$dir" "$*" "$supersedes" ;;
   list) exec python3 "$ARH_HOME/lib/memory.py" list "$ARH_ROOT" "$ARH_ITERS" "$([ "${1-}" = --all ] && echo all)" ;;
   show) [ -n "${1-}" ] || arh_die "usage: arh memory show ID"; exec python3 "$ARH_HOME/lib/memory.py" show "$ARH_ROOT" "$1" ;;
+  search)
+    [ $# -gt 0 ] || arh_die "usage: arh memory search QUERY"
+    # A configured Markdown knowledge tool does the searching; ARH only falls back to a word match.
+    cmd=$(arh_config_get "$ARH_HARN" memory_search_cmd "")
+    if [ -n "$cmd" ]; then
+      exec python3 -c 'import os, re, shlex, subprocess, sys
+values = {"{query}": sys.argv[2], "{dir}": sys.argv[3]}
+argv = [re.sub(r"\{query\}|\{dir\}", lambda m: values[m.group()], a) for a in shlex.split(sys.argv[1])]
+sys.exit(subprocess.run(argv).returncode)' "$cmd" "$*" "$ARH_ROOT/knowledge"
+    fi
+    exec python3 "$ARH_HOME/lib/memory.py" search "$ARH_ROOT" "$ARH_ITERS" "$*" ;;
   -h|--help|help|"") usage ;;
   *) arh_die "unknown: arh memory $sub (add, list, show)" ;;
 esac

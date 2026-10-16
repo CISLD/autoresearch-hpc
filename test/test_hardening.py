@@ -713,6 +713,32 @@ arh('dispatch', 'report', '-n', n, '--outcome', 'concluded', '--summary', 'The f
         receipt = json.loads((self.it / 'metadata/conclusions.jsonl').read_text().splitlines()[-1])
         self.assertEqual(receipt['entire_sessions']['01JFIXTURECHECKPOINT0000AB'][0]['model'], 'claude-opus-5-5')
 
+    def test_memory_search_uses_a_configured_tool_or_a_word_match(self):
+        self.ask(); self.gate()
+        self.call('memory', 'add', '-n', '1', 'No sample is empty; every sample has reads in at least 10,000 genes.')
+        self.assertIn('F1.1', self.call('memory', 'search', 'empty', 'sample').stdout)
+        self.assertIn('no current finding', self.call('memory', 'search', 'nothing', 'like', 'this').stdout)
+        stub = self.root / 'search.py'
+        stub.write_text('import sys\nprint("searched", sys.argv[1:])\n')
+        self.configure(extra_config=f'memory_search_cmd = python3 {stub} {{query}} --in {{dir}}\n')
+        out = self.call('memory', 'search', 'empty', 'sample').stdout
+        self.assertIn("'empty sample', '--in', '" + str(self.root / 'knowledge') + "'", out)
+
+    def test_a_finding_reformatted_by_a_markdown_tool_still_reads(self):
+        # The front matter as basic-memory 0.23.2 rewrote it (2026-10-16): no quotes, a block list,
+        # a datetime and a permalink.
+        self.ask(); self.gate()
+        self.call('memory', 'add', '-n', '1', 'The fixture passes its one check under a SOUND review.')
+        path = self.root / 'knowledge/F1.1.md'
+        meta = dict(re.findall(r'(?m)^(report_sha256|predeclaration_sha256): (\S+)$', path.read_text()))
+        path.write_text('---\nid: F1.1\niteration: 1\nquestion: q1\ntitle: validation\n'
+                        'recorded: 2026-10-16 10:39:16+00:00\nverdicts: SOUND\n'
+                        f"predeclaration_sha256: {meta['predeclaration_sha256']}\nreport_sha256: {meta['report_sha256']}\n"
+                        'reviews:\n- CROSSCHECK_adversary_reviewer_x.md\npermalink: knowledge/f1.1\n---\n\n'
+                        'The fixture passes its one check under a SOUND review.\n')
+        self.assertIn('F1.1', self.call('memory', 'list').stdout)
+        self.assertEqual(json.loads(self.call('context', '-n', '1').stdout)['memory']['findings'][0]['id'], 'F1.1')
+
     def test_a_milder_second_review_does_not_answer_an_unsound_one(self):
         self.configure("print('VERDICT: UNSOUND')")
         self.ask()

@@ -42,7 +42,11 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   report hashes, the reviews and their verdicts, so any harness, reviewer or Markdown tool can
   read it. `--supersedes ID` marks an earlier finding superseded without deleting it; a finding
   whose iteration no longer holds its conclusion is listed as stale. `arh context` shows the
-  current findings as an index, `arh memory show ID` one in full. `PROTOCOL.md` §8.8.
+  current findings as an index, `arh memory show ID` one in full. `arh memory search QUERY`
+  hands the search to a Markdown knowledge tool named in `memory_search_cmd` (checked with
+  basic-memory 0.23.2, which must be told not to rewrite notes: `disable_permalinks = true`,
+  `ensure_frontmatter_on_sync = false`), or falls back to a word match. Findings that such a tool
+  has reformatted still read. `PROTOCOL.md` §8.8.
 - **The record names the agent sessions behind an iteration.** Every `arh` command on an
   iteration appends to `metadata/activity.jsonl` with `ARH_SESSION` and the agent process it
   ran under: the nearest ancestor whose program, or the script an interpreter runs, is one of the

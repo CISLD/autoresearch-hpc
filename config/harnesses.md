@@ -101,6 +101,12 @@ web_access = allow
 # arh ask, arh delegate and arh evoke refuse to send a plan, report or task that carries something
 # shaped like a credential (an API key, a token, a private key). off only for a recorded reason.
 secret_scan = on
+# How arh memory search finds recorded findings. Empty: a word match over knowledge/. Or a
+# Markdown knowledge tool, with {query} and {dir} (the knowledge/ directory) substituted, e.g.
+# basic-memory: `bm tool search-notes {query} --project arh-knowledge` after `bm project add
+# arh-knowledge <project>/knowledge`, with disable_permalinks = true and
+# ensure_frontmatter_on_sync = false in its config so it never rewrites a finding.
+memory_search_cmd =
 # auto: when gitleaks (https://github.com/gitleaks/gitleaks) is on PATH, its maintained rules are
 # applied on top of ARH's built-in patterns, which cover only common token shapes. gitleaks: require
 # it. builtin: never call it.
