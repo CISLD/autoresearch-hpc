@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Protocol conformance matrix: inject each protocol violation and check that arh refuses it.
 
-E1-E19 run this checkout's `arh` in a scratch project against a stand-in reviewer, so no model
+E1-E22 run this checkout's `arh` in a scratch project against a stand-in reviewer, so no model
 is called. E5b, E6, E9, E12 and E13 run real tasks and need --site, a configured site.md. A Slurm or PBS
 site submits real jobs, so put --workdir on a filesystem the compute nodes can see. Without
 --site those five are reported as skipped. The matrix is printed and written as JSON.
@@ -389,6 +389,41 @@ def main():
          'the replicator sees its login file and no memory store',
          r.returncode == 0 and 'memory_visible False' in seen and 'login_visible True' in seen,
          ' '.join(l for l in seen.splitlines() if 'visible' in l) or (r.stdout + r.stderr)[-240:])
+    terms()
+
+    # E20-E22: per-iteration controllers (orchestration = per-iteration). A controller that waits
+    # for a release file holds its iteration while the main controller tries to change it.
+    controller = work / 'controller.py'
+    controller.write_text("import os, time\nfrom pathlib import Path\n"
+                          "while not Path(os.environ['WAIT_FOR']).exists():\n    time.sleep(0.2)\n")
+    terms(extra=f'orchestration = per-iteration\niteration_controller = ctl\nharness_ctl_family = openai\n'
+                f'harness_ctl_cmd = python3 "{controller}" {{prompt}}\n')
+    brief = work / 'brief.md'
+    brief.write_text('Find out whether the fixture passes its one check.\n')
+    release = work / 'release'
+    env['WAIT_FOR'] = str(release)
+    n, it = iteration('E20 dispatched iteration', frozen=False, report=False)
+    started = arh('dispatch', '-n', n, '--brief', str(brief), '--detach')
+    changed = arh('note', '-n', n, 'written by the main controller')
+    second = arh('dispatch', '-n', n, '--brief', str(brief))
+    release.touch()
+    waited = arh('wait', '-n', n, '--timeout', '120', '--interval', '1')
+    freed = arh('note', '-n', n, 'the controller has finished')
+    case('E20', 'main controller changes an iteration its dispatched controller holds', 'refused until the controller exits',
+         started.returncode == 0 and changed.returncode == 3 and waited.returncode == 0 and freed.returncode == 0,
+         f'dispatched {started.returncode == 0}; change refused {changed.returncode == 3}; '
+         f'allowed after the controller exited {freed.returncode == 0}')
+    case('E21', 'a second controller dispatched to the same iteration', 'refused',
+         second.returncode != 0 and 'already has a running controller' in second.stderr, second.stderr)
+    env.pop('WAIT_FOR')
+    terms(extra=f'orchestration = per-iteration\niteration_controller = ctl\nharness_ctl_family = openai\n'
+                f'harness_ctl_cmd = python3 "{controller}" {{prompt}}\n'
+                'executor = twin\nharness_twin_family = anthropic\nharness_twin_cmd = true\n')
+    n, it = iteration('E22 executor of the verifier\'s family')
+    unreviewed.add(int(n))
+    r = arh('ask', '-n', n)
+    case('E22', "review from the executor's model family", 'refused',
+         r.returncode != 0 and 'the executor (twin/anthropic)' in r.stderr, r.stderr)
     terms()
 
     # E11: the review terms were bound at claim; changing them needs a recorded reason.

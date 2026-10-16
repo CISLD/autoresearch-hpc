@@ -300,7 +300,20 @@ in `iterations/iterationN/metadata/delegations/NNN-<role>/` with `request.md`,
 hashes. A delegated response is a **draft**: it is not evidence until it has gone
 through pinned execution, the gates and a cross-check, exactly like work you
 wrote yourself. Delegation carries no family requirement — it is a division of
-labour, not a second opinion. Review is still governed by `arh ask`.
+labour, not a second opinion. Review is still governed by `arh ask`, and with
+`orchestration = per-iteration` the verifier must differ in family from the
+executor too.
+
+## Per-iteration controllers
+
+With `orchestration = per-iteration` in `.arh/config/harnesses.md`, the session
+that talks to the operator is the **main controller**: it claims iterations and
+runs `arh dispatch -n N --brief FILE`, which starts a fresh **iteration
+controller** session that owns iteration N. Read `skills/dispatch/SKILL.md`.
+The main controller reads hand-backs (`arh dispatch status`) and the ledger; it
+does not change a dispatched iteration, and `arh` refuses if it tries. An
+iteration controller finds its instructions in its prompt; it works only on its
+own iteration and ends with `arh dispatch report`.
 
 ## Optional external generators
 

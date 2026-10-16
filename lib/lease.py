@@ -12,11 +12,28 @@ idle.
   lease.py take DIR REASON AGENT USER HOST SESSION     become the holder, keeping the old one in history
   lease.py show DIR                                    holder, since, last activity
   lease.py open ITERATIONS HOURS                       one line per iteration not yet concluded
+
+While a dispatched controller holds an iteration (arh dispatch, a live .dispatch-lock), touch refuses
+every other session: the main controller reads a dispatched iteration and does not write to it.
 """
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
+
+import locks
+
+
+class Refused(Exception):
+    """Another session's controller holds the iteration."""
+
+
+def dispatched(directory):
+    """The owner record of the live controller dispatched to DIRECTORY, or None."""
+    lock = Path(directory) / '.dispatch-lock'
+    if not lock.is_dir() or locks.state(lock) == 'stale':
+        return None
+    return locks.owner(lock) or {}
 
 
 def now():
@@ -68,6 +85,12 @@ def save(directory, data):
 
 
 def touch(directory, command, who):
+    holder = dispatched(directory)
+    if holder is not None and who.get('session') != holder.get('session'):
+        n = Path(directory).name[9:]
+        raise Refused(f"iteration {n} is held by its dispatched controller ({holder.get('harness', '?')}, "
+                      f"session {holder.get('session', '?')}): the main controller reads it and does not change "
+                      f"it. See arh dispatch status -n {n}; arh wait -n {n} waits for it to finish.")
     lease = load(directory)
     if lease is None:
         lease = dict(holder=who, since=now())
@@ -136,7 +159,11 @@ if __name__ == '__main__':
         directory, arg = sys.argv[2], sys.argv[3]
         who = dict(zip(('agent', 'user', 'host', 'session'), sys.argv[4:8]))
         who['session'] = who.get('session') or None
-        (touch if cmd == 'touch' else take)(directory, arg, who)
+        try:
+            (touch if cmd == 'touch' else take)(directory, arg, who)
+        except Refused as refused:
+            print(f'arh: {refused}', file=sys.stderr)
+            sys.exit(3)
     elif cmd == 'show':
         show(sys.argv[2])
     elif cmd == 'open':

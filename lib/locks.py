@@ -84,6 +84,9 @@ def running(iterations, number=None):
         found += [(f'{d.name}: submission {p.parent.name}', p) for p in sorted(d.glob('metadata/nextflow/*/.launch-lock'))]
         if (d / '.review-lock').is_dir():
             found.append((f'{d.name}: review', d / '.review-lock'))
+        # A dispatched controller (arh dispatch); not when the controller itself waits on its iteration.
+        if (d / '.dispatch-lock').is_dir() and os.environ.get('ARH_DISPATCH') != d.name[9:]:
+            found.append((f'{d.name}: controller', d / '.dispatch-lock'))
     return found
 
 

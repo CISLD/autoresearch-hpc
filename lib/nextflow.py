@@ -243,10 +243,13 @@ def run():
     logs.mkdir(parents=True, exist_ok=True)
     lock = engine / '.launch-lock'
     if kind == 'iteration' and not os.environ.get('ARH_DETACHED'):    # a detached child's caller did it
-        lease.touch(iteration, 'arh submit ' + name, dict(agent=os.environ.get('ARH_LEASE_AGENT', '?'),
-                                                         user=os.environ.get('USER', 'unknown'),
-                                                         host=os.uname().nodename,
-                                                         session=os.environ.get('ARH_SESSION') or None))
+        try:
+            lease.touch(iteration, 'arh submit ' + name, dict(agent=os.environ.get('ARH_LEASE_AGENT', '?'),
+                                                             user=os.environ.get('USER', 'unknown'),
+                                                             host=os.uname().nodename,
+                                                             session=os.environ.get('ARH_SESSION') or None))
+        except lease.Refused as refused:
+            sys.exit(f'arh: {refused}')
     if args.detach:
         return detach(lock, logs, iteration, kind)
     # A declared input that failed its last integrity check is named in every run that can read it.

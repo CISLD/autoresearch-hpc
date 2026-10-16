@@ -216,6 +216,24 @@ ambiguities each agent resolved.
 6c.6 Agreement among replicating agents MUST NOT be reported as confirmation.
 The evidential content of a fan-out is its disagreement, not a majority vote.
 
+## 6d. Per-iteration controllers
+
+6d.1 A project MAY drive its iterations through a main controller that
+dispatches each iteration to its own controller session. Whether it does MUST be
+part of the review terms bound at claim (§6.7).
+
+6d.2 At most one controller MAY hold an iteration at a time. While it holds it,
+an implementation MUST refuse changes to that iteration from every other
+session, the main controller's included.
+
+6d.3 A required review MUST come from a model family other than that of the
+iteration's controller and that of any configured executor.
+
+6d.4 The controller's session output MUST be kept with the iteration, with
+credential-shaped text removed, and its hand-back to the main controller MUST be
+recorded. Every dispatched iteration remains in the record and counts as an
+attempt at its question (§8.6).
+
 ## 7. Reporting
 
 7.1 The pre-declared quantity MUST be reported, including when another number is
@@ -281,7 +299,8 @@ be enforced by review or additional tooling.
 A project that declares sealed inputs relies on §3.9 and §5.8 as well, and a
 conforming implementation MUST refuse both mechanically: a run whose frozen
 artefacts changed, and a run that would read a sealed input without a valid
-freeze.
+freeze. A project that dispatches iterations relies on §6d.2 and §6d.3, which a
+conforming implementation MUST likewise enforce mechanically.
 
 `test/run_tests.sh` asserts those boundaries and the hardened review contract;
 `test/conformance.py` injects one violation per boundary and records the refusals.
@@ -299,7 +318,10 @@ and reviewed evidence afterwards, they do not prevent them. A
 blind-review directory does not by itself prevent an agent from reading files it
 has OS permission to access. The review terms and policy bound at claim (§6.7,
 §6.9) are recorded in files the producer can write: the binding stops a
-relaxation made through the configuration, not a forged claim record. Container
+relaxation made through the configuration, not a forged claim record. A
+dispatched controller's hold (§6d.2) is enforced on changes made through the
+implementation; a session that edits the iteration's files directly is detected
+by the hashes, not stopped. Container
 digests identify bytes but do not prove determinism or scientific validity.
 
 External model services receive the context supplied to them. Local/HPC compute

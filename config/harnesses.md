@@ -59,6 +59,24 @@ producer     = claude
 orchestrator =
 executor     =
 
+# How the work is driven. single: one producer session runs each iteration (arh delegate is
+# optional). per-iteration: a main controller session talks to you, claims iterations and runs
+# arh dispatch -n N, which starts a fresh controller session that owns iteration N: it
+# pre-declares, calls the executor and the verifier, and hands back a summary. The verifier must
+# then differ in model family from both the iteration controller and the executor.
+orchestration = single
+# The harness each dispatched iteration runs in (default: producer). Any CLI with a command
+# template above can be one, including a meta-harness such as Omnigent.
+iteration_controller =
+max_parallel_iterations = 2
+# A prefix for the controller's command, e.g. `srun -t 08:00:00 --mem 8G` to run it as a job
+# (the compute node then needs to reach the model provider). Empty runs it here.
+dispatch_launcher =
+# Seconds before a controller is stopped; 0 for no limit.
+dispatch_timeout = 0
+# Environment for controllers, which run headless and must wait in the foreground.
+dispatch_env = CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
+
 verifier   = codex
 # Whether a cross-check must come from a different model family than the producer. Keep this
 # true unless you have a reason: a model does not reliably catch its own reasoning errors, so a

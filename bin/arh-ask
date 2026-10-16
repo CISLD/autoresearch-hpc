@@ -71,7 +71,16 @@ if [ "$rebuttal" = 0 ] && [ "$role" != reimplementer ] && [ -f "$report_file" ];
 fi
 
 producer=$(arh_config_get "$ARH_HARN" producer claude)
-case "$producer" in *..*|*/*) arh_die "invalid configured harness name" ;; esac
+# With per-iteration controllers, the iteration's producing agent is the controller it was
+# dispatched to, and an executor may have written the analysis: the verifier must differ from both.
+executor=""; efam=""
+if [ "$(arh_config_get "$ARH_HARN" orchestration single)" = per-iteration ]; then
+  ctl=$(python3 "$ARH_HOME/lib/dispatch.py" controller "$dir")
+  [ -z "$ctl" ] || producer=$ctl
+  executor=$(arh_config_get "$ARH_HARN" executor "")
+  [ -z "$executor" ] || efam=$(arh_config_get "$ARH_HARN" "harness_${executor}_family" unknown)
+fi
+case "$producer$executor" in *..*|*/*) arh_die "invalid configured harness name" ;; esac
 pfam=$(arh_config_get "$ARH_HARN" "harness_${producer}_family" unknown)
 
 # Why harness $1 cannot give this review; nothing when it can.
@@ -87,6 +96,12 @@ ineligible() {
        set require_foreign_family = false in .arh/config/harnesses.md to accept same-family
        review as a full cross-check for this project, and record why beside it. For an
        iteration already claimed, that is a change of review terms: add --terms-changed REASON."
+    return
+  fi
+  if [ -n "$efam" ] && [ "$efam" = "$fam" ] && [ "$same_family" = 0 ] && [ "$strict_family" = true ]; then
+    echo "the executor ($executor/$efam), which may have written the analysis, and the verifier ($1/$fam) are
+       the same model family. With orchestration = per-iteration the verifier must differ from both the
+       iteration controller and the executor. Choose another verifier or executor."
     return
   fi
   [ -n "$(arh_config_get "$ARH_HARN" "harness_${1}_cmd" "")" ] \

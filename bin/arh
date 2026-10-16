@@ -38,6 +38,7 @@ arh — AutoResearch HPC
   arh ask    --role R -n N       cross-check with a foreign harness
   arh evoke  TOOL -n N --phase P invoke a configured external research generator
   arh delegate --role R -n N     hand a bounded task to the configured orchestrator/executor harness
+  arh dispatch -n N --brief F    give iteration N its own controller session (orchestration = per-iteration)
   arh verify {new|gate|run|conclude|list}  re-examine an object an iteration produced
   arh note   -n N [--job ID] TEXT record work that ran outside arh submit
   arh dag    {init|check|freeze} reconstruct the path a result took
@@ -69,7 +70,7 @@ case "$cmd" in
       "$(cat "$ARH_HOME/VERSION" 2>/dev/null || echo unknown)" \
       "$(sed -n 's/^# The AutoResearch HPC protocol, v//p' "$ARH_HOME/PROTOCOL.md" 2>/dev/null || echo unknown)"
     ;;
-  init|migrate|claim|new|arm|gate|freeze|ask|evoke|delegate|dag|replicate|verify|run|submit|note|wait|inputs|lease|env|guard|ledger|status|doctor|site|next|context)
+  init|migrate|claim|new|arm|gate|freeze|ask|evoke|delegate|dispatch|dag|replicate|verify|run|submit|note|wait|inputs|lease|env|guard|ledger|status|doctor|site|next|context)
     exec "$ARH_HOME/bin/arh-$cmd" "$@" ;;
   *) printf 'arh: unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;
 esac

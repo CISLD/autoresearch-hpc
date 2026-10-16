@@ -453,6 +453,109 @@ replicate_env_unset = CLAUDE_CONFIG_DIR
         self.assertIn('memory_visible True', report)
         self.assertIn('treat its blindness as unverified', summary)
 
+    CONTROLLER = """import os, subprocess, sys, time
+from pathlib import Path
+n, root = os.environ['ARH_DISPATCH'], Path(os.environ['ARH_PROJECT'])
+it = root / f'iterations/iteration{n}'
+def arh(*a):
+    r = subprocess.run(['arh', *a], capture_output=True, text=True)
+    print('$ arh', *a, '->', r.returncode)
+    return r
+if os.environ.get('WAIT_FOR'):
+    while not Path(os.environ['WAIT_FOR']).exists():
+        time.sleep(0.2)
+    sys.exit(0)
+arh('new', '-n', n)
+it.joinpath('README.md').write_text(''.join(f'## {h}\\nDispatched fixture; one failing check.\\n' for h in
+    ('Question', 'Estimand', 'Instrument', 'Acceptance criteria', 'Negative controls', 'Detection limit', 'Prediction')))
+arh('gate', 'predeclare', '-n', n)
+(it / 'results/report').mkdir(parents=True, exist_ok=True)
+(it / f'results/report/iteration{n}_report.md').write_text('Negative controls reject failures. Detection limit: one check. Candidate only.\\n')
+arh('ask', '-n', n)
+arh('gate', 'results', '-n', n)
+print('the key I found: sk-ant-' + 'a' * 40)
+arh('dispatch', 'report', '-n', n, '--outcome', 'concluded', '--summary', 'The fixture concluded under a SOUND review; nothing remains open.')
+"""
+
+    def dispatch_config(self, extra=''):
+        controller = self.root / 'controller.py'
+        controller.write_text(self.CONTROLLER)
+        self.configure(extra_config=f'orchestration = per-iteration\niteration_controller = ctl\n'
+                                    f'harness_ctl_family = openai\nharness_ctl_cmd = python3 "{controller}" {{prompt}}\n'
+                                    'dispatch_env = FIXTURE=1\n' + extra)
+        brief = self.root / 'brief.md'
+        brief.write_text('Find out whether the fixture passes its one check.\n')
+        n = self.call('claim', '-t', 'dispatched iteration').stdout.split()[0]
+        return n, self.root / f'iterations/iteration{n}', brief
+
+    def test_dispatch_needs_per_iteration_mode(self):
+        brief = self.root / 'brief.md'; brief.write_text('anything\n')
+        self.assertIn('orchestration = per-iteration', self.call('dispatch', '-n', '1', '--brief', str(brief), good=False).stderr)
+
+    def test_a_dispatched_controller_runs_its_iteration_and_hands_back(self):
+        n, it, brief = self.dispatch_config()
+        self.assertIn('Find out whether the fixture passes', self.call('dispatch', '-n', n, '--brief', str(brief), '--dry-run').stdout)
+        self.assertFalse((it / 'metadata/dispatch').exists())
+        self.call('dispatch', '-n', n, '--brief', str(brief), timeout=180)
+        record = it / 'metadata/dispatch/001'
+        run = json.loads((record / 'run.json').read_text())
+        self.assertEqual((run['harness'], run['state'], run['exit_code'], run['session']), ('ctl', 'finished', 0, f'dispatch-{n}-001'))
+        log = (record / 'session.log').read_text()
+        self.assertIn('[REDACTED Anthropic API key]', log); self.assertNotIn('sk-ant-aaaa', log)
+        self.assertGreaterEqual(run['redactions'], 1)
+        self.assertEqual(run['session_log_sha256'], hashlib.sha256((record / 'session.log').read_bytes()).hexdigest())
+        summary = json.loads((record / 'summary.json').read_text())
+        self.assertEqual((summary['outcome'], summary['state']), ('concluded', 'concluded'))
+        self.assertIn('concluded', self.call('dispatch', 'status', '-n', n).stdout)
+        lease = json.loads((it / 'metadata/lease.json').read_text())
+        self.assertEqual(lease['holder']['session'], f'dispatch-{n}-001')
+        review = json.loads(next(it.glob('CROSSCHECK_*.md.json')).read_text())
+        self.assertEqual(review['producer_family'], 'openai')
+        self.assertFalse((it / '.dispatch-lock').exists())
+
+    def test_a_dispatched_iteration_is_held_by_its_controller(self):
+        n, it, brief = self.dispatch_config('max_parallel_iterations = 1\n')
+        release = self.root / 'release'
+        self.env['WAIT_FOR'] = str(release)
+        self.call('dispatch', '-n', n, '--brief', str(brief), '--detach')
+        try:
+            # E20: the main controller cannot change the iteration while its controller holds it.
+            refused = self.call('new', '-n', n, good=False)
+            self.assertEqual(refused.returncode, 3)
+            self.assertIn('held by its dispatched controller', refused.stderr)
+            self.assertIn('held by its dispatched controller', self.call('note', '-n', n, 'a note', good=False).stderr)
+            # E21: one controller per iteration.
+            self.assertIn('already has a running controller', self.call('dispatch', '-n', n, '--brief', str(brief), good=False).stderr)
+            # The parallel limit.
+            m = self.call('claim', '-t', 'another').stdout.split()[0]
+            self.assertIn('max_parallel_iterations is 1', self.call('dispatch', '-n', m, '--brief', str(brief), good=False).stderr)
+            # Only the controller hands back.
+            self.assertIn('only the controller', self.call('dispatch', 'report', '-n', n, '--outcome', 'blocked',
+                                                            '--summary', 'one two three four five', good=False).stderr)
+            self.assertIn('running', self.call('dispatch', 'status', '-n', n).stdout)
+        finally:
+            release.touch()
+        self.call('wait', '-n', n, '--timeout', '60', '--interval', '1', timeout=90)
+        self.assertFalse((it / '.dispatch-lock').exists())
+        self.call('note', '-n', n, 'the controller has finished')       # free again
+        self.assertIn('exited 0', self.call('dispatch', 'status', '-n', n).stdout)
+
+    def test_the_verifier_differs_from_controller_and_executor(self):
+        # E22: with per-iteration controllers the executor's family counts too.
+        n, it, _ = self.dispatch_config('executor = twin\nharness_twin_family = anthropic\nharness_twin_cmd = true\n')
+        self.call('new', '-n', n)
+        it.joinpath('README.md').write_text((self.it / 'README.md').read_text())
+        self.call('gate', 'predeclare', '-n', n)
+        report = it / f'results/report/iteration{n}_report.md'
+        report.parent.mkdir(parents=True, exist_ok=True); report.write_text(self.report.read_text())
+        self.assertIn('the executor (twin/anthropic)', self.call('ask', '-n', n, good=False).stderr)
+        # The iteration's controller counts as its producer: an anthropic controller cannot be
+        # reviewed by an anthropic verifier either.
+        record = it / 'metadata/dispatch/001'; record.mkdir(parents=True)
+        (record / 'run.json').write_text(json.dumps({'harness': 'reviewer'}))
+        self.set_config('harnesses.md', executor='')
+        self.assertIn('same model family', self.call('ask', '-n', n, '--terms-changed', 'executor removed', good=False).stderr)
+
     def test_a_milder_second_review_does_not_answer_an_unsound_one(self):
         self.configure("print('VERDICT: UNSOUND')")
         self.ask()

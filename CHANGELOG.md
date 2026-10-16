@@ -29,6 +29,18 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   `WITHDRAWN`; a `MAINTAINED` answer blocks in every mode but `allow`.
   `ask_max_adjudications` (default 1) limits judgments per review. `require-rebuttal` keeps
   the unjudged rebuttal. `PROTOCOL.md` §6.8.
+- **Per-iteration controllers (`orchestration = per-iteration`).** A main controller session
+  claims iterations and runs `arh dispatch -n N --brief FILE`, which starts a fresh controller
+  session for iteration N through the configured harness command template (any agent CLI, or a
+  meta-harness such as Omnigent), optionally under `dispatch_launcher` (e.g. `srun`). The
+  controller pre-declares, calls the executor and the verifier, runs the results gate and hands
+  back a summary with `arh dispatch report`; `arh dispatch status` lists dispatches and
+  outcomes, and `arh wait` waits for controllers. While a controller holds an iteration, `arh`
+  refuses changes to it from every other session; one controller per iteration;
+  `max_parallel_iterations` caps how many run. The controller's stdout and stderr are kept under
+  `metadata/dispatch/NNN/` with credential-shaped text removed and hashed in `run.json`. The
+  verifier must differ in family from both the controller and the executor. `single`, the
+  default, keeps today's behaviour. `PROTOCOL.md` §6d; conformance E20–E22.
 - **Blind replicators no longer see the operator's home.** `arh replicate` gave an agent only
   the frozen DAG, but the harness still read the operator's home directory, where Claude Code's
   auto-memory, Codex's memories, claude-mem and chat history can hold the original code or its
@@ -68,7 +80,7 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   rewrite. If it fails, nothing is frozen.
 - `arh gate results` reports the runs of the iteration and names files a completed run used
   that were edited and run again (§5.9a).
-- Conformance scenarios E14–E19 (E16 now also covers an unjudged, a maintained and a
+- Conformance scenarios E14–E22 (E16 now also covers an unjudged, a maintained and a
   withdrawn rebuttal); E1's description now says what it tests (unfilled placeholders).
 
 ### Fixed

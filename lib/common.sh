@@ -224,6 +224,9 @@ arh_secret_scan() {
 # session holds it. Never fails the command that calls it.
 arh_lease_touch() {
   [ -f "$1/CLAIM.json" ] || return 0
+  local rc=0
   python3 "$ARH_HOME/lib/lease.py" touch "$1" "$2" "$(arh_agent_name)" "${USER:-unknown}" "$(uname -n)" \
-    "${ARH_SESSION:-}" || true
+    "${ARH_SESSION:-}" || rc=$?
+  # 3: a dispatched controller holds the iteration (lease.py said so); any other failure only warns.
+  [ "$rc" -ne 3 ] || exit 3
 }

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Dispatch an iteration to its own controller session (orchestration = per-iteration).
+#
+# The main controller plans and claims; `arh dispatch -n N --brief FILE` starts a fresh agent
+# session that owns iteration N until it reports back. See lib/dispatch.py.
+set -euo pipefail
+# shellcheck source=lib/common.sh
+. "${ARH_HOME:?}/lib/common.sh"
+
+usage() {
+  cat <<'USAGE'
+usage:
+  arh dispatch -n N --brief FILE [--harness H] [--detach] [--dry-run]
+  arh dispatch status [-n N]
+  arh dispatch report -n N --outcome concluded|unconcluded|blocked --summary TEXT
+
+Needs orchestration = per-iteration in .arh/config/harnesses.md. The controller is the
+iteration_controller harness (or --harness), started through its command template, optionally under
+dispatch_launcher. It holds the iteration until it exits: other sessions cannot change the iteration
+through arh meanwhile. --detach returns at once; arh wait -n N waits for the controller.
+`report` is run by the controller itself, last, to hand back a summary the main controller reads.
+USAGE
+}
+
+sub=start
+case "${1-}" in
+  -h|--help|help) usage; exit 0 ;;
+  status|report) sub=$1; shift ;;
+esac
+n=""; brief=""; harness=""; detach=0; dry=0; outcome=""; summary=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -n|--iteration) n="${2-}"; shift 2 ;;
+    --brief)        brief="${2-}"; shift 2 ;;
+    --harness)      harness="${2-}"; shift 2 ;;
+    --detach)       detach=1; shift ;;
+    --dry-run)      dry=1; shift ;;
+    --outcome)      outcome="${2-}"; shift 2 ;;
+    --summary)      summary="${2-}"; shift 2 ;;
+    -h|--help)      usage; exit 0 ;;
+    *) arh_die "unexpected argument: $1" ;;
+  esac
+done
+case "$n" in *[!0-9]*) arh_die "iteration must be numeric" ;; esac
+case "$harness" in *..*|*/*) arh_die "invalid harness name" ;; esac
+arh_load_project
+ARH_LEASE_AGENT=$(arh_agent_name); export ARH_LEASE_AGENT
+
+case "$sub" in
+  status) exec python3 "$ARH_HOME/lib/dispatch.py" status "$n" ;;
+  report)
+    [ -n "$n" ] || arh_die "which iteration? arh dispatch report -n N --outcome ... --summary ..."
+    exec python3 "$ARH_HOME/lib/dispatch.py" report "$n" "$outcome" "$summary" ;;
+esac
+[ -n "$n" ] || arh_die "which iteration? arh dispatch -n N --brief FILE"
+[ -n "$brief" ] || arh_die "a brief is required: what the iteration is to find out, and anything the controller must know"
+exec python3 "$ARH_HOME/lib/dispatch.py" start "$n" "$brief" "$harness" "$detach" "$dry"
