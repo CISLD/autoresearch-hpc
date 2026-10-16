@@ -111,7 +111,7 @@ for agent in Path(sys.argv[1]).glob("agent*/"):
         modes.add("unrecorded")
 print(" ".join(sorted(modes)))' "$work")
   case "$homes" in
-    fresh) printf '\nEvery agent ran with a fresh home directory (replicate_home = fresh): memory stores,\nhistory and settings in the operator'"'"'s home were not visible to it.\n' ;;
+    fresh) printf '\nEvery agent ran with a fresh home directory (replicate_home = fresh): memory stores,\nhistory and user-level settings in the operator'"'"'s home were not visible to it, so each ran\nwith the model and options its command template names (HOME.json records the template).\n' ;;
     unrecorded) printf '\nThe agents'"'"' home directories are not recorded (replicated before replicate_home existed).\n' ;;
     *) printf '\n**Home directories: %s.** An agent that inherited the operator'"'"'s home could read its\nmemory stores and history; treat its blindness as unverified.\n' "$homes" ;;
   esac
@@ -140,6 +140,9 @@ set -- $avail; navail=$#
 
 mkdir -p "$work"
 printf 'replicating iteration %s with %s agent(s) across:%s\n' "$n" "$agents" "$avail" >&2
+[ "$(arh_config_get "$ARH_HARN" replicate_home fresh)" = inherit ] \
+  || arh_info "agents run with a fresh home: a harness's user-level settings (model, permissions, MCP servers,
+       hooks) are hidden too, so pin what an agent needs, such as its model, in harness_<name>_cmd"
 
 i=1
 while [ "$i" -le "$agents" ]; do
@@ -211,7 +214,7 @@ EOF
     # carry the original into a blind session. Only the listed login files are linked in. The
     # command template is split like arh ask splits it, so quoted arguments survive.
     ( python3 "$ARH_HOME/lib/agenthome.py" run "$(arh_config_get "$ARH_HARN" replicate_home fresh)" "$a/home" \
-        "$(arh_config_get "$ARH_HARN" replicate_home_files "")" "$(arh_config_get "$ARH_HARN" replicate_env_unset "")" \
+        "$(arh_config_get "$ARH_HARN" fresh_home_files "")" "$(arh_config_get "$ARH_HARN" fresh_home_env_unset "")" \
         "$a/HOME.json" "$cmd" "$a/PROMPT.md" "$to" > "$a/REPORT.md" 2> "$a/stderr.log" </dev/null \
         || printf '\n**Harness exited non-zero.** See stderr.log\n' >> "$a/REPORT.md" ) &
   fi

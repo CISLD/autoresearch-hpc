@@ -3,8 +3,9 @@
 Receipts record runs and reviews, not the agent sessions that wrote the plan, the code and the
 report. The record now names them from three sources, without capturing transcripts itself:
 
-- metadata/activity.jsonl: every arh command on the iteration, with ARH_SESSION and the session id
-  the harness reports (session_env in harnesses.md, e.g. CLAUDE_CODE_SESSION_ID);
+- metadata/activity.jsonl: every arh command on the iteration, with ARH_SESSION, the agent process
+  it ran under (the nearest ancestor that is a configured harness program, for any harness) and,
+  optionally, a session id the harness reports in a variable named in session_env;
 - metadata/dispatch/*/run.json: controllers started by arh dispatch, whose output arh keeps;
 - Entire CLI checkpoints, when the project is a git repository that Entire records: commits that
   touched the iteration carry an `Entire-Checkpoint: <id>` trailer, and the checkpoint holds the
@@ -37,7 +38,8 @@ def grouped(directory):
     """[{id, agent, host, first, last, commands}] by session, in order of first appearance."""
     groups = {}
     for entry in activity(directory):
-        key = entry.get('session') or entry.get('harness_session') or f"{entry.get('agent')}@{entry.get('host')}"
+        key = (entry.get('session') or entry.get('harness_session') or entry.get('agent_process')
+               or f"{entry.get('agent')}@{entry.get('host')}")
         group = groups.setdefault(key, dict(id=key, agent=entry.get('agent'), host=entry.get('host'),
                                             first=entry.get('time'), commands=0))
         group['last'] = entry.get('time')

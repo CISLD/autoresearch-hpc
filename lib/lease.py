@@ -20,9 +20,14 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
+import shlex
+import socket
+import subprocess
 import sys
 
 import locks
+from project import config
 
 
 class Refused(Exception):
@@ -107,18 +112,65 @@ def touch(directory, command, who):
 
 
 def harness_session():
-    """The session id the agent's own harness reports, from the variables named in session_env
-    (harnesses.md; exported by arh as ARH_SESSION_ENV), or None."""
+    """A session id the harness reports in an environment variable named in session_env
+    (harnesses.md; exported by arh as ARH_SESSION_ENV), or None. Optional: agent_process works
+    for every harness."""
     for name in os.environ.get('ARH_SESSION_ENV', '').split():
         if os.environ.get(name):
             return f'{name}={os.environ[name]}'
     return None
 
 
+# Interpreters and launchers name no harness: a template such as `python3 wrapper.py {prompt}`
+# must not make every Python ancestor look like an agent session.
+GENERIC = {'python', 'python3', 'bash', 'sh', 'zsh', 'env', 'node', 'npx', 'uv', 'uvx', 'timeout', 'srun', 'nohup'}
+
+
+def ps(pid, field):
+    try:
+        out = subprocess.run(['ps', '-o', f'{field}=', '-p', str(pid)], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return ''
+    return out.stdout.strip() if out.returncode == 0 else ''
+
+
+def agent_process():
+    """The agent session as the nearest ancestor process whose program is a configured harness
+    command (the first word of a harness_<name>_cmd): 'name:pid@host:start'. Needs no knowledge of
+    any particular harness; None when arh was not started from one."""
+    programs = {}
+    for key, value in config(os.environ.get('ARH_HARN', '')).items():
+        match = re.fullmatch(r'harness_(.+)_cmd', key)
+        try:
+            program = os.path.basename(shlex.split(value)[0]) if match and value.strip() else ''
+        except ValueError:
+            continue
+        if program and program not in GENERIC:
+            programs.setdefault(program[:15], match.group(1))     # ps truncates comm to 15 characters
+    pid = os.getppid()
+    for _ in range(32):
+        if not programs or pid <= 1:
+            return None
+        # The program itself, or for a script (`node .../gemini`, `bash .../agent`) the script the
+        # interpreter runs: the first argument after the interpreter that is not an option.
+        words = ps(pid, 'args').split()
+        names = [os.path.basename(ps(pid, 'comm'))] + [os.path.basename(w) for w in words[:1]]
+        if words and os.path.basename(words[0]) in GENERIC:
+            names += [os.path.basename(w) for w in words[1:] if not w.startswith('-')][:1]
+        found = next((programs[name[:15]] for name in names if name[:15] in programs), None)
+        if found:
+            return f"{found}:{pid}@{socket.gethostname()}:{ps(pid, 'lstart')}"
+        parent = ps(pid, 'ppid')
+        if not parent.isdigit():
+            return None
+        pid = int(parent)
+    return None
+
+
 def log_activity(directory, command, who):
     """One line per arh command on the iteration: which agent session acted, and when."""
     entry = dict(time=now(), command=command, agent=who.get('agent'), user=who.get('user'), host=who.get('host'),
-                 session=who.get('session'), harness_session=harness_session())
+                 session=who.get('session'), harness_session=harness_session(), agent_process=agent_process())
     with open(Path(directory) / 'metadata/activity.jsonl', 'a') as log:
         log.write(json.dumps(entry) + '\n')
 

@@ -374,7 +374,7 @@ def main():
                           "c = h / '.claude/.credentials.json'\nprint('login_visible', c.is_file() and c.read_text() == 'token')\n")
     terms(extra=f'harnesses = replicator\nharness_replicator_family = anthropic\n'
                 f'harness_replicator_cmd = python3 "{replicator}" {{prompt}}\n'
-                'replicate_home = fresh\nreplicate_home_files = .claude/.credentials.json\n')
+                'replicate_home = fresh\nfresh_home_files = .claude/.credentials.json\n')
     n, it = iteration('E19 blind replication', report=False)
     must('dag', 'init', '-n', n)
     (it / 'DAG.md').write_text(DAG)

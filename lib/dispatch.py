@@ -32,6 +32,7 @@ import socket
 import subprocess
 import sys
 
+import agenthome
 import attempts
 from findings import summary as verdict_summary
 from harness import claimed_terms, cli_version, digest
@@ -183,7 +184,12 @@ def supervise(n, seq):
     values = {'{prompt}': (record / 'prompt.md').read_text(), '{cwd}': os.environ['ARH_ROOT']}
     argv = shlex.split(harn.get('dispatch_launcher', '')) + [
         re.sub(r'\{prompt\}|\{cwd\}', lambda m: values[m.group()], arg) for arg in shlex.split(run['command_template'])]
-    env = dict(os.environ, ARH_SESSION=run['session'], ARH_DISPATCH=str(n), ARH_PROJECT=os.environ['ARH_ROOT'])
+    # dispatch_home = fresh: the controller starts without the operator's agent memory and history, so
+    # one iteration's session carries nothing into the next except what the project files say.
+    fresh = harn.get('dispatch_home', 'inherit') == 'fresh'
+    base, linked = (agenthome.fresh_env(record / 'home', harn.get('fresh_home_files', ''),
+                                        harn.get('fresh_home_env_unset', '')) if fresh else (dict(os.environ), []))
+    env = dict(base, ARH_SESSION=run['session'], ARH_DISPATCH=str(n), ARH_PROJECT=os.environ['ARH_ROOT'])
     for assignment in shlex.split(harn.get('dispatch_env', '')):
         key, _, value = assignment.partition('=')
         if key:
@@ -201,9 +207,11 @@ def supervise(n, seq):
         except OSError as error:
             rc = 127
             err.write(f'\narh: could not start the controller: {error}\n'.encode())
+    if fresh:
+        agenthome.restore(record / 'home', linked)
     removed = redact(record / 'session.log') + redact(record / 'stderr.log')
     summary = load(record / 'summary.json')
-    run.update(finished=now(), state='finished', exit_code=rc, redactions=removed,
+    run.update(finished=now(), state='finished', exit_code=rc, redactions=removed, home='fresh' if fresh else 'inherit',
                session_log_sha256=digest(record / 'session.log'), session_log_bytes=(record / 'session.log').stat().st_size,
                stderr_sha256=digest(record / 'stderr.log'), outcome=summary.get('outcome'))
     save(record / 'run.json', run)

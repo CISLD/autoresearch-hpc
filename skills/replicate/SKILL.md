@@ -25,7 +25,7 @@ arh replicate report -n N
 Each agent runs with a fresh home directory (`replicate_home = fresh` in
 `.arh/config/harnesses.md`): your harness's memory, history and plugins stay out
 of a session that is meant to be blind, and only the login files listed in
-`replicate_home_files` are linked in. If a harness cannot log in that way, add
+`fresh_home_files` are linked in. If a harness cannot log in that way, add
 its login file to that list rather than switching to `inherit`; an inherited
 home is named in the report as unverified blindness.
 

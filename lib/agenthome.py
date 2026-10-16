@@ -5,7 +5,7 @@ frozen DAG. But a harness reads its home directory too: Claude Code's auto-memor
 memories database, plugins such as claude-mem that reload earlier sessions, chat history. Any of
 them can carry the original code or its results into a session that is meant to be blind. A fresh
 home hides all of them without knowing which tools are installed; the operator lists the
-credential files to link in (`replicate_home_files`), as SOURCE or SOURCE:DEST, SOURCE relative to
+credential files to link in (`fresh_home_files`), as SOURCE or SOURCE:DEST, SOURCE relative to
 the real home or absolute, with $VARS expanded. Entries whose source does not exist are skipped.
 
 The links are symbolic, so a harness that refreshes its login writes through to the real file. A
@@ -58,16 +58,39 @@ def argv(template, prompt_file):
     return out, '{prompt}' not in template
 
 
+def fresh_env(home, files, unset):
+    """(environment, linked files) for an agent run with HOME as a new, empty home directory."""
+    home = Path(home)
+    home.mkdir(parents=True)
+    linked = links(home, files)
+    env = {k: v for k, v in os.environ.items() if k not in set(unset.split())}
+    env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / '.config'), XDG_DATA_HOME=str(home / '.local/share'),
+               XDG_CACHE_HOME=str(home / '.cache'), XDG_STATE_HOME=str(home / '.local/state'))
+    return env, linked
+
+
+def restore(home, linked):
+    """Copy back a login file the agent replaced instead of writing through the link; return their names."""
+    rotated, real = [], Path(os.path.expanduser('~'))
+    for link in linked:
+        target = Path(home) / link['dest']
+        if link['linked'] and not target.is_symlink() and target.is_file():
+            source = Path(os.path.expandvars(os.path.expanduser(link['source'])))
+            source = source if source.is_absolute() else real / source
+            shutil.copy2(target, source)
+            rotated.append(link['source'])
+            print(f"arh: the agent replaced its login file {link['source']}; copied it back so your own "
+                  "sessions keep a valid token", file=sys.stderr)
+    return rotated
+
+
+NOTICE = ('a fresh home also hides the harness\'s own user-level settings (model, permissions, MCP servers, '
+          'hooks): whatever the agent needs, such as a pinned model, belongs in its command template')
+
+
 def run(mode, home, files, unset, record, template, prompt_file, timeout):
     command, on_stdin = argv(template, prompt_file)
-    env, linked = dict(os.environ), []
-    home = Path(home)
-    if mode == 'fresh':
-        home.mkdir(parents=True)
-        linked = links(home, files)
-        env = {k: v for k, v in os.environ.items() if k not in set(unset.split())}
-        env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / '.config'), XDG_DATA_HOME=str(home / '.local/share'),
-                   XDG_CACHE_HOME=str(home / '.cache'), XDG_STATE_HOME=str(home / '.local/state'))
+    env, linked = (fresh_env(home, files, unset) if mode == 'fresh' else (dict(os.environ), []))
     stdin = open(prompt_file, 'rb') if on_stdin else subprocess.DEVNULL
     try:
         rc = subprocess.run(command, env=env, stdin=stdin, timeout=float(timeout) if float(timeout) > 0 else None).returncode
@@ -77,18 +100,9 @@ def run(mode, home, files, unset, record, template, prompt_file, timeout):
     finally:
         if on_stdin:
             stdin.close()
-    rotated = []
-    real = Path(os.path.expanduser('~'))
-    for link in linked:
-        target = home / link['dest']
-        if link['linked'] and not target.is_symlink() and target.is_file():
-            source = Path(os.path.expandvars(os.path.expanduser(link['source'])))
-            source = source if source.is_absolute() else real / source
-            shutil.copy2(target, source)
-            rotated.append(link['source'])
-            print(f"arh: the agent replaced its login file {link['source']}; copied it back so your own "
-                  "sessions keep a valid token", file=sys.stderr)
-    data = dict(home=mode, files=linked, unset=unset.split() if mode == 'fresh' else [], rotated=rotated, exit_code=rc)
+    rotated = restore(home, linked) if mode == 'fresh' else []
+    data = dict(home=mode, command_template=template, files=linked, unset=unset.split() if mode == 'fresh' else [],
+                rotated=rotated, exit_code=rc, note=NOTICE if mode == 'fresh' else None)
     Path(record).write_text(json.dumps(data, indent=2) + '\n')
     return rc
 

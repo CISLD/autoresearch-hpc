@@ -425,8 +425,8 @@ harness_source_family = openai
 harness_reviewer_family = anthropic
 harness_reviewer_cmd = python3 "{self.mock}" {{prompt}}
 replicate_home = {mode}
-replicate_home_files = .claude/.credentials.json
-replicate_env_unset = CLAUDE_CONFIG_DIR
+fresh_home_files = .claude/.credentials.json
+fresh_home_env_unset = CLAUDE_CONFIG_DIR
 ```
 ''')
         self.bind_terms()
@@ -557,6 +557,7 @@ arh('dispatch', 'report', '-n', n, '--outcome', 'concluded', '--summary', 'The f
         self.assertIn('same model family', self.call('ask', '-n', n, '--terms-changed', 'executor removed', good=False).stderr)
 
     def test_activity_names_the_harness_session(self):
+        self.set_config('harnesses.md', session_env='CLAUDE_CODE_SESSION_ID')
         self.env['CLAUDE_CODE_SESSION_ID'] = 'sess-abc'
         self.call('note', '-n', '1', 'a note from a recorded session')
         last = json.loads((self.it / 'metadata/activity.jsonl').read_text().splitlines()[-1])
@@ -621,6 +622,41 @@ arh('dispatch', 'report', '-n', n, '--outcome', 'concluded', '--summary', 'The f
         self.assertIn(f'F{n}.1', listed); self.assertNotIn('F1.1', listed)
         self.assertIn(f'superseded by F{n}.1', self.call('memory', 'list', '--all').stdout)
         self.assertTrue((self.root / 'knowledge/F1.1.md').is_file())          # kept, not deleted
+
+    def test_the_agent_session_is_found_for_any_configured_harness(self):
+        # A harness the code knows nothing about: only its command template names its program.
+        bindir = Path(self.temp.name) / 'agent-bin'; bindir.mkdir()
+        agent = bindir / 'fakeagent'
+        agent.write_text('#!/usr/bin/env bash\narh note -n 1 "written from inside the fake agent"\n'); agent.chmod(0o755)
+        self.configure(extra_config='harness_fake_cmd = fakeagent {prompt}\n')
+        self.env['PATH'] = f"{bindir}{os.pathsep}{self.env['PATH']}"
+        self.env.pop('CLAUDE_CODE_SESSION_ID', None)
+        subprocess.run([str(agent)], env=self.env, cwd=self.root, check=True, capture_output=True)
+        last = json.loads((self.it / 'metadata/activity.jsonl').read_text().splitlines()[-1])
+        self.assertTrue(last['agent_process'].startswith('fake:'), last)
+        self.assertIn(last['agent_process'], self.call('sessions', '-n', '1').stdout)
+        self.call('note', '-n', '1', 'not from inside an agent')
+        self.assertIsNone(json.loads((self.it / 'metadata/activity.jsonl').read_text().splitlines()[-1])['agent_process'])
+
+    def test_a_fresh_home_records_the_template_it_ran(self):
+        _, work, summary = self.replication_fixture('fresh')
+        record = json.loads((work / 'HOME.json').read_text())
+        self.assertIn('{prompt}', record['command_template'])
+        self.assertIn('pinned model', record['note'])
+        self.assertIn('HOME.json records the template', summary)
+
+    def test_a_dispatched_controller_can_start_with_a_fresh_home(self):
+        operator = Path(self.temp.name) / 'operator-home'
+        (operator / '.claude-mem').mkdir(parents=True); (operator / '.claude-mem/memory.db').write_text('earlier iterations')
+        self.env['HOME'] = str(operator)
+        n, it, brief = self.dispatch_config('dispatch_home = fresh\nfresh_home_files =\n')
+        controller = self.root / 'controller.py'
+        controller.write_text("import os\nfrom pathlib import Path\n"
+                              "print('memory_visible', (Path(os.environ['HOME']) / '.claude-mem/memory.db').exists())\n")
+        self.call('dispatch', '-n', n, '--brief', str(brief), timeout=120)
+        record = it / 'metadata/dispatch/001'
+        self.assertIn('memory_visible False', (record / 'session.log').read_text())
+        self.assertEqual(json.loads((record / 'run.json').read_text())['home'], 'fresh')
 
     def test_a_milder_second_review_does_not_answer_an_unsound_one(self):
         self.configure("print('VERDICT: UNSOUND')")

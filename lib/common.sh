@@ -64,7 +64,7 @@ arh_load_project() {
   ARH_LEDGER="$ARH_ROOT/$(arh_config_get "$ARH_PROJ" ledger PROGRESS.md)"
   ARH_REGISTRY="$ARH_STATE/registry.tsv"
   # Which environment variables carry the harness's own session id (harnesses.md session_env).
-  ARH_SESSION_ENV=$(arh_config_get "$ARH_HARN" session_env CLAUDE_CODE_SESSION_ID)
+  ARH_SESSION_ENV=$(arh_config_get "$ARH_HARN" session_env "")
   export ARH_ROOT ARH_STATE ARH_CONF ARH_SITE ARH_PROJ ARH_HARN ARH_GENS ARH_ITERS ARH_VERIFY ARH_LEDGER ARH_REGISTRY \
     ARH_SESSION_ENV
 }

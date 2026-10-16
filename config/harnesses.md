@@ -74,12 +74,17 @@ max_parallel_iterations = 2
 dispatch_launcher =
 # Seconds before a controller is stopped; 0 for no limit.
 dispatch_timeout = 0
+# fresh: each controller starts with a fresh home (fresh_home_files below), so agent memory and
+# history do not carry from one iteration's session into the next; only project files do. Its
+# user-level settings are hidden too: pin the model in the command template.
+dispatch_home = inherit
 # Environment for controllers, which run headless and must wait in the foreground.
 dispatch_env = CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
 
-# Environment variables in which a harness reports its own session id. Every arh command on an
-# iteration records the first one set in metadata/activity.jsonl, so the record names the agent
-# sessions that acted on it (arh sessions -n N). Add your harness's variable if it sets one.
+# Every arh command on an iteration records, in metadata/activity.jsonl, the agent process it ran
+# under: the nearest ancestor whose program is one of the harness commands above, for any harness
+# (arh sessions -n N). Optionally also a session id a harness reports in an environment variable,
+# which links to that harness's own transcript; Claude Code's is CLAUDE_CODE_SESSION_ID.
 session_env = CLAUDE_CODE_SESSION_ID
 
 verifier   = codex
@@ -116,13 +121,18 @@ ask_max_adjudications = 1
 
 # Blind replicators (arh replicate) run with a fresh home directory, so memory stores, chat
 # history and plugins in your home (Claude Code auto-memory, Codex memories, claude-mem ...)
-# cannot carry the original into a blind session. Only these login files are linked in, each as
-# SOURCE or SOURCE:DEST (SOURCE relative to your home or absolute, $VARS expanded; DEST relative
-# to the fresh home). Missing sources are skipped. `inherit` turns the fresh home off.
+# cannot carry the original into a blind session. `inherit` turns this off. A fresh home hides
+# the harness's user-level settings too (model, permissions, MCP servers, hooks): pin what an
+# agent needs, such as its model, in its harness_<name>_cmd.
 replicate_home = fresh
-replicate_home_files = $CLAUDE_CONFIG_DIR/.credentials.json:.claude/.credentials.json .claude/.credentials.json $CODEX_HOME/auth.json:.codex/auth.json .codex/auth.json .local/share/opencode/auth.json .gemini/oauth_creds.json
+# Login files linked into a fresh home (replicators, and controllers with dispatch_home = fresh),
+# each as SOURCE or SOURCE:DEST: SOURCE relative to your home or absolute, $VARS expanded; DEST
+# relative to the fresh home. Missing sources are skipped. Checked with real logins on
+# 2026-10-16: Claude Code and Codex. OpenCode started and reached its provider but could not be
+# confirmed (the account was out of credits); the Gemini CLI entry is untested.
+fresh_home_files = $CLAUDE_CONFIG_DIR/.credentials.json:.claude/.credentials.json .claude/.credentials.json $CODEX_HOME/auth.json:.codex/auth.json .codex/auth.json .local/share/opencode/auth.json .gemini/oauth_creds.json
 # Variables that would point a harness back at your own configuration directory.
-replicate_env_unset = CLAUDE_CONFIG_DIR CODEX_HOME
+fresh_home_env_unset = CLAUDE_CONFIG_DIR CODEX_HOME
 ```
 
 ## Refusals, fallbacks and token usage

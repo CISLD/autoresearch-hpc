@@ -38,8 +38,11 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   whose iteration no longer holds its conclusion is listed as stale. `arh context` shows the
   current findings as an index, `arh memory show ID` one in full. `PROTOCOL.md` §8.8.
 - **The record names the agent sessions behind an iteration.** Every `arh` command on an
-  iteration appends to `metadata/activity.jsonl` with `ARH_SESSION` and the session id the
-  harness reports (`session_env`, default `CLAUDE_CODE_SESSION_ID`). Transcripts are not
+  iteration appends to `metadata/activity.jsonl` with `ARH_SESSION` and the agent process it
+  ran under: the nearest ancestor whose program, or the script an interpreter runs, is one of the
+  configured harness commands, so it works for any harness without knowing it. A session id a
+  harness reports in an environment variable is added when `session_env` names one (the
+  template names Claude Code's). Transcripts are not
   captured by ARH: when the project is a git repository recorded by Entire CLI, the
   `Entire-Checkpoint` trailers of commits that touched the iteration are linked instead.
   `arh sessions -n N` shows all of it, and the conclusion receipt lists the sessions and
@@ -60,9 +63,13 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   the frozen DAG, but the harness still read the operator's home directory, where Claude Code's
   auto-memory, Codex's memories, claude-mem and chat history can hold the original code or its
   results. Replicators now run with a fresh home (`replicate_home = fresh`, the default) into
-  which only the login files in `replicate_home_files` are linked; `replicate_env_unset` drops
+  which only the login files in `fresh_home_files` are linked; `fresh_home_env_unset` drops
   variables such as `CLAUDE_CONFIG_DIR` that point back at the real configuration. Each agent's
-  `HOME.json` records it and `arh replicate report` says so. The launcher now splits harness
+  `HOME.json` records it, with the command template it ran, and `arh replicate report` says so.
+  A fresh home also hides the harness's user-level settings (model, permissions, MCP servers,
+  hooks), so `arh replicate` says to pin what an agent needs in its command template. Per-
+  iteration controllers can start with a fresh home too (`dispatch_home = fresh`). The login
+  files are `fresh_home_files` and the dropped variables `fresh_home_env_unset`. The launcher now splits harness
   commands as `arh ask` does: a quoted argument in a command template broke replication.
 - **Attempts per question are counted.** An agent could run several iterations on one question
   and conclude the one that worked, and the ledger showed only that one. `arh claim` takes
