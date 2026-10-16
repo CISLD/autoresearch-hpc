@@ -205,6 +205,9 @@ denominator.
 replication, and the original implementation MUST NOT be provided to the
 replicating agent. A conforming implementation MUST enforce this by construction
 within the cooperative protocol boundary rather than only instructing the agent.
+That includes the replicating harness's own state: memory stores, chat history
+and plugins kept in the operator's home MUST NOT be available to it, unless the
+replication record says they were.
 
 6c.5 Replication MAY fan out across several agents/harnesses. Implementations
 MUST report divergence: differing values, contested set membership and the

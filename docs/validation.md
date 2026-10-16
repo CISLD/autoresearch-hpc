@@ -48,6 +48,7 @@ they are reported as skipped. The result is written as JSON with the commit it r
 | E15 | results moved aside, freeze file deleted, plan edited to fit and frozen again | second freeze refused; a hand-made freeze file fails the results gate |
 | E16 | the only review returns `UNSOUND` | results gate refuses until a reviewer withdraws it on a reasoned rebuttal; refused while the rebuttal is unjudged, when the reviewer maintains it, and after `Verdict: accepted` |
 | E18 | review policy relaxed in `project.md` after the claim | the results gate still applies the policy recorded at claim |
+| E19 | memory stores in the operator's home during blind replication | the replicator runs with a fresh home: it sees its login file and no memory store |
 | E17 | a concluded iteration's directory deleted and the ledger re-rendered | `arh ledger check` fails: the claim registry still lists it |
 
 E14–E17 come from an external review of v0.3.0 (2026-10-13), which found that v0.3.0

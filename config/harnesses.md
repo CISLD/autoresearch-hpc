@@ -90,6 +90,16 @@ ask_output_words = 500
 ask_max_rounds = 2
 # How many times one UNSOUND review's rebuttal may be put to a reviewer (arh ask --rebuttal).
 ask_max_adjudications = 1
+
+# Blind replicators (arh replicate) run with a fresh home directory, so memory stores, chat
+# history and plugins in your home (Claude Code auto-memory, Codex memories, claude-mem ...)
+# cannot carry the original into a blind session. Only these login files are linked in, each as
+# SOURCE or SOURCE:DEST (SOURCE relative to your home or absolute, $VARS expanded; DEST relative
+# to the fresh home). Missing sources are skipped. `inherit` turns the fresh home off.
+replicate_home = fresh
+replicate_home_files = $CLAUDE_CONFIG_DIR/.credentials.json:.claude/.credentials.json .claude/.credentials.json $CODEX_HOME/auth.json:.codex/auth.json .codex/auth.json .local/share/opencode/auth.json .gemini/oauth_creds.json
+# Variables that would point a harness back at your own configuration directory.
+replicate_env_unset = CLAUDE_CONFIG_DIR CODEX_HOME
 ```
 
 ## Refusals, fallbacks and token usage

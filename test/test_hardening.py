@@ -374,6 +374,85 @@ harness_reviewer_cmd = python3 "{self.mock}" {{prompt}}{cmd_extra}
         self.assertEqual(attempt[int(tries[1])], {'question': 'q1', 'state': 'concluded', 'attempt': 3, 'of': 3})
         self.assertEqual(attempt[1]['state'], 'open')
 
+    DAG = """# Discovery DAG — iteration 1
+
+## 1. Inputs
+| id | what | identity |
+|---|---|---|
+| I1 | 100 paired draws | sha256:aa11 |
+
+## 2. The graph, as it ran
+```mermaid
+flowchart TD
+    I1 --> N1
+    N1 --> C1
+```
+
+## 3. Nodes
+| id | operation | parameters | decision? | output |
+|---|---|---|---|---|
+| N1 | mean difference | none | no | diff |
+| C1 | the claim | none | no | diff |
+
+## 4. Branch count
+One path; the denominator is 1.
+
+## 5. What falls out of the graph
+Nothing.
+
+## 6. Terminal claim
+The mean difference is 0.0184 raw units.
+"""
+    REPLICATOR = ("import os, sys\nfrom pathlib import Path\nh = Path(os.environ['HOME'])\n"
+                  "print('VERDICT: SOUND')\n"
+                  "print('memory_visible', (h / '.claude-mem/memory.db').exists() or (h / '.codex/memories_1.sqlite').exists())\n"
+                  "c = h / '.claude/.credentials.json'\n"
+                  "print('login_visible', c.is_file() and c.read_text() == 'token')\n"
+                  "print('config_dir_set', 'CLAUDE_CONFIG_DIR' in os.environ)\n")
+
+    def replication_fixture(self, mode):
+        operator = Path(self.temp.name) / 'operator-home'
+        for path, text in (('.claude-mem/memory.db', 'the original code'), ('.codex/memories_1.sqlite', 'results'),
+                           ('.claude/.credentials.json', 'token')):
+            (operator / path).parent.mkdir(parents=True, exist_ok=True); (operator / path).write_text(text)
+        self.env.update(HOME=str(operator), CLAUDE_CONFIG_DIR=str(operator / '.claude'))
+        self.mock.write_text(self.REPLICATOR)
+        self.config.write_text(f'''```arh-config
+producer = source
+verifier = reviewer
+harnesses = reviewer
+harness_source_family = openai
+harness_reviewer_family = anthropic
+harness_reviewer_cmd = python3 "{self.mock}" {{prompt}}
+replicate_home = {mode}
+replicate_home_files = .claude/.credentials.json
+replicate_env_unset = CLAUDE_CONFIG_DIR
+```
+''')
+        self.bind_terms()
+        self.call('dag', 'init', '-n', '1')
+        (self.it / 'DAG.md').write_text(self.DAG)
+        self.call('dag', 'freeze', '-n', '1')
+        self.call('replicate', '-n', '1', '--agents', '1')
+        work = self.root / 'verification/replication_it1/agent1'
+        return (work / 'REPORT.md').read_text(), work, self.call('replicate', 'report', '-n', '1').stdout
+
+    def test_a_blind_replicator_cannot_see_the_operators_memory(self):
+        report, work, summary = self.replication_fixture('fresh')
+        self.assertIn('memory_visible False', report)
+        self.assertIn('login_visible True', report)
+        self.assertIn('config_dir_set False', report)
+        record = json.loads((work / 'HOME.json').read_text())
+        self.assertEqual(record['home'], 'fresh')
+        self.assertEqual(record['files'], [{'source': '.claude/.credentials.json', 'dest': '.claude/.credentials.json', 'linked': True}])
+        self.assertTrue((work / 'home/.claude/.credentials.json').is_symlink())
+        self.assertIn('Every agent ran with a fresh home directory', summary)
+
+    def test_an_inherited_home_is_named_in_the_replication_report(self):
+        report, _, summary = self.replication_fixture('inherit')
+        self.assertIn('memory_visible True', report)
+        self.assertIn('treat its blindness as unverified', summary)
+
     def test_a_milder_second_review_does_not_answer_an_unsound_one(self):
         self.configure("print('VERDICT: UNSOUND')")
         self.ask()

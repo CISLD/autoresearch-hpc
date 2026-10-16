@@ -29,6 +29,14 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   `WITHDRAWN`; a `MAINTAINED` answer blocks in every mode but `allow`.
   `ask_max_adjudications` (default 1) limits judgments per review. `require-rebuttal` keeps
   the unjudged rebuttal. `PROTOCOL.md` §6.8.
+- **Blind replicators no longer see the operator's home.** `arh replicate` gave an agent only
+  the frozen DAG, but the harness still read the operator's home directory, where Claude Code's
+  auto-memory, Codex's memories, claude-mem and chat history can hold the original code or its
+  results. Replicators now run with a fresh home (`replicate_home = fresh`, the default) into
+  which only the login files in `replicate_home_files` are linked; `replicate_env_unset` drops
+  variables such as `CLAUDE_CONFIG_DIR` that point back at the real configuration. Each agent's
+  `HOME.json` records it and `arh replicate report` says so. The launcher now splits harness
+  commands as `arh ask` does: a quoted argument in a command template broke replication.
 - **Attempts per question are counted.** An agent could run several iterations on one question
   and conclude the one that worked, and the ledger showed only that one. `arh claim` takes
   `--question ID` or `--continues N` (default: the iteration is its own question), a passing
@@ -60,7 +68,7 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   rewrite. If it fails, nothing is frozen.
 - `arh gate results` reports the runs of the iteration and names files a completed run used
   that were edited and run again (§5.9a).
-- Conformance scenarios E14–E18 (E16 now also covers an unjudged, a maintained and a
+- Conformance scenarios E14–E19 (E16 now also covers an unjudged, a maintained and a
   withdrawn rebuttal); E1's description now says what it tests (unfilled placeholders).
 
 ### Fixed

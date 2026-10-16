@@ -101,6 +101,20 @@ PY
   fi
   printf '\n> Agreement is evidence, not truth. Models fail in correlated ways, so a\n'
   printf '> unanimous answer can still be wrong. Read the disagreements first.\n'
+  homes=$(python3 -c 'import json, sys
+from pathlib import Path
+modes = set()
+for agent in Path(sys.argv[1]).glob("agent*/"):
+    try:
+        modes.add(json.loads((agent / "HOME.json").read_text()).get("home") or "unrecorded")
+    except (OSError, ValueError):
+        modes.add("unrecorded")
+print(" ".join(sorted(modes)))' "$work")
+  case "$homes" in
+    fresh) printf '\nEvery agent ran with a fresh home directory (replicate_home = fresh): memory stores,\nhistory and settings in the operator'"'"'s home were not visible to it.\n' ;;
+    unrecorded) printf '\nThe agents'"'"' home directories are not recorded (replicated before replicate_home existed).\n' ;;
+    *) printf '\n**Home directories: %s.** An agent that inherited the operator'"'"'s home could read its\nmemory stores and history; treat its blindness as unverified.\n' "$homes" ;;
+  esac
   exit 0
 fi
 
@@ -192,11 +206,13 @@ EOF
   else
     cmd=$(arh_config_get "$ARH_HARN" "harness_${h}_cmd" "")
     to=$(arh_config_get "$ARH_HARN" ask_timeout 900)
-    runner=""; command -v timeout >/dev/null 2>&1 && runner="timeout $to"
-    pre=${cmd%%\{prompt\}*}; post=${cmd##*\{prompt\}}
     arh_info "agent$i -> $h ($fam) dispatching"
-    # shellcheck disable=SC2086
-    ( $runner $pre "$(cat "$a/PROMPT.md")" $post > "$a/REPORT.md" 2> "$a/stderr.log" </dev/null \
+    # A fresh home: the harness's memory stores, history and plugins in the operator's home cannot
+    # carry the original into a blind session. Only the listed login files are linked in. The
+    # command template is split like arh ask splits it, so quoted arguments survive.
+    ( python3 "$ARH_HOME/lib/agenthome.py" run "$(arh_config_get "$ARH_HARN" replicate_home fresh)" "$a/home" \
+        "$(arh_config_get "$ARH_HARN" replicate_home_files "")" "$(arh_config_get "$ARH_HARN" replicate_env_unset "")" \
+        "$a/HOME.json" "$cmd" "$a/PROMPT.md" "$to" > "$a/REPORT.md" 2> "$a/stderr.log" </dev/null \
         || printf '\n**Harness exited non-zero.** See stderr.log\n' >> "$a/REPORT.md" ) &
   fi
   i=$((i+1))

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Protocol conformance matrix: inject each protocol violation and check that arh refuses it.
 
-E1-E18 run this checkout's `arh` in a scratch project against a stand-in reviewer, so no model
+E1-E19 run this checkout's `arh` in a scratch project against a stand-in reviewer, so no model
 is called. E5b, E6, E9, E12 and E13 run real tasks and need --site, a configured site.md. A Slurm or PBS
 site submits real jobs, so put --workdir on a filesystem the compute nodes can see. Without
 --site those five are reported as skipped. The matrix is printed and written as JSON.
@@ -29,6 +29,35 @@ HEADINGS = ('Question', 'Estimand', 'Instrument', 'Acceptance criteria', 'Negati
             'Detection limit', 'Prediction')
 DECLARATION = ''.join(f'## {i}. {h}\nDeterministic fixture; one failing check.\n' for i, h in enumerate(HEADINGS, 1))
 REPORT = 'Negative controls reject failures. Detection limit: one check. Candidate only.\n'
+DAG = """# Discovery DAG
+
+## 1. Inputs
+| id | what | identity |
+|---|---|---|
+| I1 | 100 paired draws | sha256:aa11 |
+
+## 2. The graph, as it ran
+```mermaid
+flowchart TD
+    I1 --> N1
+    N1 --> C1
+```
+
+## 3. Nodes
+| id | operation | parameters | decision? | output |
+|---|---|---|---|---|
+| N1 | mean difference | none | no | diff |
+| C1 | the claim | none | no | diff |
+
+## 4. Branch count
+One path; the denominator is 1.
+
+## 5. What falls out of the graph
+Nothing.
+
+## 6. Terminal claim
+The mean difference is 0.0184 raw units.
+"""
 
 
 def main():
@@ -331,6 +360,36 @@ def main():
     case('E18', 'review policy relaxed after the claim', 'the policy recorded at claim applies',
          relaxed.returncode != 0 and 'the claimed value applies' in relaxed.stderr,
          next((l.strip() for l in relaxed.stderr.splitlines() if 'claimed value' in l), relaxed.stderr[-300:]))
+
+    # E19: a blind replicator must not see what the operator's home holds: an agent's memory store
+    # can carry the original implementation into a session meant to be blind.
+    operator = work / 'operator-home'
+    for rel, text in (('.claude-mem/memory.db', 'the original code'), ('.codex/memories_1.sqlite', 'its results'),
+                      ('.claude/.credentials.json', 'token')):
+        (operator / rel).parent.mkdir(parents=True, exist_ok=True)
+        (operator / rel).write_text(text)
+    replicator = work / 'replicator.py'
+    replicator.write_text("import os\nfrom pathlib import Path\nh = Path(os.environ['HOME'])\nprint('VERDICT: SOUND')\n"
+                          "print('memory_visible', (h / '.claude-mem/memory.db').exists() or (h / '.codex/memories_1.sqlite').exists())\n"
+                          "c = h / '.claude/.credentials.json'\nprint('login_visible', c.is_file() and c.read_text() == 'token')\n")
+    terms(extra=f'harnesses = replicator\nharness_replicator_family = anthropic\n'
+                f'harness_replicator_cmd = python3 "{replicator}" {{prompt}}\n'
+                'replicate_home = fresh\nreplicate_home_files = .claude/.credentials.json\n')
+    n, it = iteration('E19 blind replication', report=False)
+    must('dag', 'init', '-n', n)
+    (it / 'DAG.md').write_text(DAG)
+    must('dag', 'freeze', '-n', n)
+    saved = env.get('HOME')
+    env['HOME'] = str(operator)
+    r = arh('replicate', '-n', n, '--agents', '1')
+    env['HOME'] = saved
+    out = project / f'verification/replication_it{n}/agent1/REPORT.md'
+    seen = out.read_text() if out.is_file() else ''
+    case('E19', "memory stores in the operator's home during blind replication",
+         'the replicator sees its login file and no memory store',
+         r.returncode == 0 and 'memory_visible False' in seen and 'login_visible True' in seen,
+         ' '.join(l for l in seen.splitlines() if 'visible' in l) or (r.stdout + r.stderr)[-240:])
+    terms()
 
     # E11: the review terms were bound at claim; changing them needs a recorded reason.
     n, it = iteration('E11 review terms changed after the claim')
