@@ -27,11 +27,15 @@ build_table() {
       [ "$(head -1 "$dir/PREDECLARATION.sha256")" = "$(arh_sha256 "$dir/README.md" 2>/dev/null)" ] \
         && pre='frozen' || pre='**ALTERED**'
     elif [ -f "$dir/README.md" ]; then pre=draft; else pre='—'; fi
-    [ -f "$dir/results/report/iteration${d}_report.md" ] && res=report || res='—'
+    if [ -f "$dir/results/report/iteration${d}_report.md" ]; then
+      [ "$(python3 "$ARH_HOME/lib/attempts.py" state "$dir")" = concluded ] && res=concluded || res=report
+    else res='—'; fi
     # The verdicts themselves, not "yes": an UNSOUND review is part of the record (external review, 2026-10-13).
     xc=$(python3 "$ARH_HOME/lib/findings.py" summary "$dir"); [ -n "$xc" ] || xc='—'
     printf '| %s | %s | %s | %s | %s | %s |\n' "$d" "${agent:-—}" "$pre" "$res" "$xc" "${title:-—}"
   done
+  # Questions tried more than once, with each concluded iteration's attempt number (protocol 8.4).
+  python3 "$ARH_HOME/lib/attempts.py" ledger "$ARH_ITERS"
   # Verifications sit beside the iterations they check (arh verify conclude records the outcome).
   vrows=$(python3 "$ARH_HOME/lib/verification.py" rows "$ARH_ROOT" "$ARH_VERIFY")
   if [ -n "$vrows" ]; then

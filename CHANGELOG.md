@@ -29,6 +29,13 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   `WITHDRAWN`; a `MAINTAINED` answer blocks in every mode but `allow`.
   `ask_max_adjudications` (default 1) limits judgments per review. `require-rebuttal` keeps
   the unjudged rebuttal. `PROTOCOL.md` §6.8.
+- **Attempts per question are counted.** An agent could run several iterations on one question
+  and conclude the one that worked, and the ledger showed only that one. `arh claim` takes
+  `--question ID` or `--continues N` (default: the iteration is its own question), a passing
+  `arh gate results` writes a conclusion receipt (`metadata/conclusions.jsonl`, the hashes it
+  rested on), and the ledger's status block lists every question tried more than once with each
+  concluded iteration as "attempt k of n". The Results column says `concluded` while the
+  receipt still matches the evidence; `arh status --json` adds the attempt. `PROTOCOL.md` §8.6.
 - **The review policy is bound at claim.** `require_crosscheck`, `review_response` and
   `unsound_review` were read from `project.md` when the gate ran, so a producer could relax
   the rule its own iteration was judged by. `arh claim` records them in `CLAIM.json`

@@ -33,7 +33,7 @@ Project/runtime configuration lives under `.arh/config/`.
 ## The loop
 
 ```bash
-arh claim -t "the question"          # atomic; returns N
+arh claim -t "the question"          # atomic; returns N (--continues M: another try at M's question)
 arh new -n N                         # scaffold the pre-declaration
 # complete every section first
 arh gate predeclare -n N             # freezes the declaration hash

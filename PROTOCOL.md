@@ -253,6 +253,12 @@ private memory MAY point to them; it MUST NOT be their only record.
 8.5 A verification's outcome MUST be recorded with the frozen plan and the runs
 it rests on, and shown beside the iteration it verifies.
 
+8.6 An iteration MUST name the question it addresses when it is claimed, and a
+passing results gate MUST record the evidence the conclusion rests on. The
+ledger MUST report each concluded iteration with the number of iterations that
+addressed its question before and after it, concluded or not, so that a result
+is never shown without the attempts that preceded it.
+
 ## 9. The operator
 
 9.1 An operator challenge to a result MUST trigger a new iteration, never an
@@ -266,8 +272,8 @@ The operator's objections are part of the scientific record.
 An implementation conforms to protocol 0.3.0 if it mechanically refuses
 violations of §2.1, §3.1, §3.5, §3.6, §3.7, §4.1, §5.2, §6.8 and §6c.4 — **nine
 mechanically enforced boundaries** — implements the review-integrity checks of
-§6.6, §6.7 and §6.9, and the record checks of §8.3. The remainder MAY be enforced by
-review or additional tooling.
+§6.6, §6.7 and §6.9, and the record checks of §8.3 and §8.6. The remainder MAY
+be enforced by review or additional tooling.
 
 A project that declares sealed inputs relies on §3.9 and §5.8 as well, and a
 conforming implementation MUST refuse both mechanically: a run whose frozen

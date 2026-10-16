@@ -322,6 +322,58 @@ harness_reviewer_cmd = python3 "{self.mock}" {{prompt}}{cmd_extra}
         policy = json.loads((self.root / f'iterations/iteration{n}/CLAIM.json').read_text())['review_policy']
         self.assertEqual(policy['unsound_review'], 'allow')
 
+    def test_claim_records_its_question(self):
+        self.assertEqual(json.loads((self.it / 'CLAIM.json').read_text())['question'], 'q1')
+        n = self.call('claim', '-t', 'again', '--continues', '1').stdout.split()[0]
+        self.assertEqual(json.loads((self.root / f'iterations/iteration{n}/CLAIM.json').read_text())['question'], 'q1')
+        m = self.call('claim', '-t', 'named', '--question', 'deg-count').stdout.split()[0]
+        self.assertEqual(json.loads((self.root / f'iterations/iteration{m}/CLAIM.json').read_text())['question'], 'deg-count')
+        self.assertIn('invalid question id', self.call('claim', '-t', 'bad', '--question', 'a b', good=False).stderr)
+        self.assertIn('no claimed iteration 99', self.call('claim', '-t', 'bad', '--continues', '99', good=False).stderr)
+        self.call('claim', '-t', 'both', '--continues', '1', '--question', 'x', good=False)
+
+    def test_a_passing_gate_records_the_conclusion(self):
+        self.ask(); self.assertIn('is concluded', self.gate().stdout)
+        receipts = (self.it / 'metadata/conclusions.jsonl').read_text().splitlines()
+        self.assertEqual(len(receipts), 1)
+        receipt = json.loads(receipts[0])
+        self.assertEqual(receipt['report_sha256'], hashlib.sha256(self.report.read_bytes()).hexdigest())
+        self.assertEqual(len(receipt['reviews']), 1)
+        self.gate()          # an unchanged conclusion is not recorded twice
+        self.assertEqual(len((self.it / 'metadata/conclusions.jsonl').read_text().splitlines()), 1)
+        self.call('ledger', 'render')
+        self.assertIn('| 1 | ', (self.root / 'PROGRESS.md').read_text())
+        self.assertRegex((self.root / 'PROGRESS.md').read_text(), r'\| 1 \| [^|]+\| frozen \| concluded \|')
+        # Evidence changed after the conclusion: the receipt no longer holds.
+        self.report.write_text(self.report.read_text() + 'Edited after the conclusion.\n')
+        self.call('ledger', 'render')
+        self.assertRegex((self.root / 'PROGRESS.md').read_text(), r'\| 1 \| [^|]+\| frozen \| report \|')
+
+    def test_the_ledger_counts_attempts_per_question(self):
+        headings = ['Question', 'Estimand', 'Instrument', 'Acceptance criteria', 'Negative controls', 'Detection limit', 'Prediction']
+        body = ''.join(f'## {h}\nA second try, with the counting corrected.\n' for h in headings)
+        self.ask()           # iteration 1 is reviewed but never passes the gate: open, not concluded
+        tries = []
+        for title in ('second try', 'third try'):
+            n = self.call('claim', '-t', title, '--continues', '1').stdout.split()[0]
+            self.call('new', '-n', n)
+            (self.root / f'iterations/iteration{n}/README.md').write_text(body)
+            self.call('gate', 'predeclare', '-n', n)
+            tries.append(n)
+        # Only the third try concludes; the first two stay open.
+        last = self.root / f'iterations/iteration{tries[1]}'
+        report = last / f'results/report/iteration{tries[1]}_report.md'
+        report.parent.mkdir(parents=True, exist_ok=True); report.write_text(self.report.read_text())
+        self.call('ask', '-n', tries[1]); self.call('gate', 'results', '-n', tries[1])
+        self.call('ledger', 'render')
+        ledger = (self.root / 'PROGRESS.md').read_text()
+        self.assertIn(f'| q1 | 1, {tries[0]}, {tries[1]} | {tries[1]} (attempt 3 of 3) |', ledger)
+        self.call('ledger', 'check')
+        status = json.loads(self.call('status', '--json').stdout)
+        attempt = {i['iteration']: i['attempt'] for i in status['iterations']}
+        self.assertEqual(attempt[int(tries[1])], {'question': 'q1', 'state': 'concluded', 'attempt': 3, 'of': 3})
+        self.assertEqual(attempt[1]['state'], 'open')
+
     def test_a_milder_second_review_does_not_answer_an_unsound_one(self):
         self.configure("print('VERDICT: UNSOUND')")
         self.ask()

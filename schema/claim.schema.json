@@ -19,6 +19,7 @@
     "session": { "type": "string" },
     "harness_config_sha256": { "type": "string", "pattern": "^([0-9a-f]{64})?$", "description": "SHA-256 of .arh/config/harnesses.md at claim time, so a change to the review terms during the iteration is visible. Empty when the file did not exist." },
     "knowledge_sha256": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "description": "SHA-256 of the durable-knowledge files at claim time (DIRECTIVES.md, GOTCHAS.md, and site_gotchas when site.md names one), keyed by file. Files that did not exist are absent." },
+    "question": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", "description": "The question this iteration addresses (arh claim --question or --continues; qN by default). The ledger counts iterations that share it as attempts." },
     "review_policy": { "type": "object", "additionalProperties": false, "properties": { "require_crosscheck": { "type": "string" }, "review_response": { "type": "string" }, "unsound_review": { "type": "string" } }, "description": "project.md's review policy when the iteration was claimed. arh gate results judges the iteration by these values, not by a later edit of project.md." },
     "freeze_journal": { "type": "boolean", "description": "True when the iteration was claimed under the freeze journal (.arh/freezes.tsv): its freeze must have a journal row, and arh migrate never backfills one for it." }
   }

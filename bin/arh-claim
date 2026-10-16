@@ -4,18 +4,32 @@ set -euo pipefail
 # shellcheck source=lib/common.sh
 . "${ARH_HOME:?}/lib/common.sh"
 
-title=""; agent=""
+title=""; agent=""; question=""; continues=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -t|--title) title="$2"; shift 2 ;;
     -a|--agent) agent="$2"; shift 2 ;;
-    -h|--help)  echo 'usage: arh claim -t TITLE [-a AGENT]'; exit 0 ;;
+    -q|--question) question="$2"; shift 2 ;;
+    --continues) continues="$2"; shift 2 ;;
+    -h|--help)  echo 'usage: arh claim -t TITLE [-a AGENT] [--question ID | --continues N]
+--question ID: the question this iteration addresses (letters, digits, . _ -); iterations that share
+  one are counted as attempts at it in the ledger. --continues N: the question iteration N addressed.
+  Without either, the iteration is its own question (qN).'; exit 0 ;;
     *) arh_die "unexpected argument: $1" ;;
   esac
 done
 [ -n "$title" ] || arh_die "a title is required: arh claim -t 'the question'"
 
 arh_load_project
+# Which question this is another attempt at: the ledger counts every iteration on it, concluded or not.
+if [ -n "$continues" ]; then
+  [ -z "$question" ] || arh_die "give --question or --continues, not both"
+  case "$continues" in ""|*[!0-9]*) arh_die "--continues takes an iteration number" ;; esac
+  [ -f "$ARH_ITERS/iteration$continues/CLAIM.json" ] || arh_die "no claimed iteration $continues to continue"
+  question=$(python3 "$ARH_HOME/lib/attempts.py" question "$ARH_ITERS/iteration$continues")
+fi
+[ -z "$question" ] || python3 "$ARH_HOME/lib/attempts.py" valid-id "$question" \
+  || arh_die "invalid question id '$question': letters, digits, '.', '_' and '-', at most 64 characters"
 # Who claimed this iteration. The configured producer is operator-owned and carries the
 # model and account a lane pinned into its name; ARH_AGENT and the harness markers are set
 # by the session itself and lose that. So the configured producer wins over both, `-a`
@@ -78,6 +92,7 @@ cat > "$dir/CLAIM.json" <<EOF
   "inferred_from": "$inferred_from",
   "claimed": "$(arh_now)",
   "title": $(printf '%s' "$title" | sed 's/\\/\\\\/g; s/"/\\"/g; s/^/"/; s/$/"/'),
+  "question": "${question:-q$n}",
   "status": "CLAIMED",
   "session": "${ARH_SESSION:-}",
   "harness_config_sha256": "$terms",

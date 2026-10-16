@@ -261,7 +261,10 @@ case "$sub" in
     fi
 
     [ "$fails" -gt 0 ] && { printf '\ngate FAILED (%s).\n' "$fails" >&2; exit 1; }
-    printf '\ngate PASSED. Iteration %s may be concluded in the ledger.\n' "$n"
+    # The conclusion receipt: the hashes this pass rested on, so the ledger can say which iterations
+    # concluded and how many attempts at their question came first.
+    python3 "$ARH_HOME/lib/attempts.py" conclude "$dir"
+    printf '\ngate PASSED. Iteration %s is concluded (metadata/conclusions.jsonl); record it with arh ledger render.\n' "$n"
     ;;
 
   rules)

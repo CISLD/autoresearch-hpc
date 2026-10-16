@@ -20,9 +20,14 @@ private memory.
 
 ```bash
 arh claim -t "the question, stated as a question"
+arh claim -t "the same question, corrected design" --continues 7    # another attempt at 7's question
 ```
 
-This is the only supported way to take an iteration number.
+This is the only supported way to take an iteration number. When an iteration
+tries again at a question an earlier one addressed (a corrected design, a failed
+acceptance criterion handled), claim it with `--continues N` or a shared
+`--question ID`: the ledger reports each concluded iteration as attempt k of n
+on its question, counting the ones that did not conclude.
 
 ## 2. Pre-declare
 
