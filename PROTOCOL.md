@@ -162,12 +162,21 @@ under different terms MUST NOT satisfy a required check unless it records the
 reason for the change.
 
 6.8 A review whose verdict is `UNSOUND` MUST NOT let the iteration conclude
-unless the record answers that verdict with a reasoned rebuttal. Every `UNSOUND`
-review needs its own answer: a later, milder review of the same evidence does
-not answer it. A producer that agrees with the verdict leaves the iteration
-unconcluded and corrects it in a new one. A project MAY relax this rule
-(`unsound_review = allow`); the verdicts of the eligible reviews MUST appear in
-the ledger either way.
+unless the record answers that verdict with a reasoned rebuttal and a reviewer,
+shown the rebuttal and the unchanged evidence, withdraws the verdict. Every
+`UNSOUND` review needs its own answer: a later, milder review of the same
+evidence does not answer it. A reviewer's judgment of a rebuttal MUST be bound
+to the review and to the rebuttal's text, and a maintained verdict MUST block
+the iteration whichever reviewer gave it. A producer that agrees with the
+verdict leaves the iteration unconcluded and corrects it in a new one. A project
+MAY accept an unjudged rebuttal (`unsound_review = require-rebuttal`) or relax
+the rule (`unsound_review = allow`); the verdicts of the eligible reviews and how
+each `UNSOUND` one stands MUST appear in the ledger either way.
+
+6.9 The review policy in force when an iteration is claimed (whether a review
+is required, how findings must be answered, what an `UNSOUND` verdict requires)
+MUST be bound to that iteration; a later change of the project's policy MUST
+NOT apply to it.
 
 ## 6b. Arms
 
@@ -257,7 +266,7 @@ The operator's objections are part of the scientific record.
 An implementation conforms to protocol 0.3.0 if it mechanically refuses
 violations of §2.1, §3.1, §3.5, §3.6, §3.7, §4.1, §5.2, §6.8 and §6c.4 — **nine
 mechanically enforced boundaries** — implements the review-integrity checks of
-§6.6 and §6.7, and the record checks of §8.3. The remainder MAY be enforced by
+§6.6, §6.7 and §6.9, and the record checks of §8.3. The remainder MAY be enforced by
 review or additional tooling.
 
 A project that declares sealed inputs relies on §3.9 and §5.8 as well, and a
@@ -279,8 +288,10 @@ are anchored outside the project (§3.6). Workflow tasks can write anywhere in t
 project except declared inputs; the hashes detect such writes to declarations
 and reviewed evidence afterwards, they do not prevent them. A
 blind-review directory does not by itself prevent an agent from reading files it
-has OS permission to access. Container digests identify bytes but do not prove
-determinism or scientific validity.
+has OS permission to access. The review terms and policy bound at claim (§6.7,
+§6.9) are recorded in files the producer can write: the binding stops a
+relaxation made through the configuration, not a forged claim record. Container
+digests identify bytes but do not prove determinism or scientific validity.
 
 External model services receive the context supplied to them. Local/HPC compute
 does not imply air-gapped inference. These limits MUST NOT be described as

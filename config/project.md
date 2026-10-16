@@ -39,13 +39,22 @@ gate, `warn` reports them, `off` skips the check. Reviews that number no finding
 are not checked. `arh gate results -n N --skeleton` prints a response to start
 from.
 
-`unsound_review` decides what an `UNSOUND` verdict does. With `require-rebuttal`
-(the default) the gate fails until the review's part of `REVIEW_RESPONSE.md`
-holds `Verdict: rebutted, because <reason>`; `Verdict: accepted` records that the
-producer agrees, and the iteration then stays unconcluded while the correction
-goes into a new one. Every `UNSOUND` review needs its answer, so asking again
-for a milder verdict does not help. `allow` restores the behaviour of v0.3.0,
-which concluded an iteration whatever its verdict, and only reports it.
+`unsound_review` decides what an `UNSOUND` verdict does. The review's part of
+`REVIEW_RESPONSE.md` answers it with `Verdict: rebutted, because <reason>` or
+`Verdict: accepted`; an accepted one leaves the iteration unconcluded, and the
+correction goes into a new one. With `require-adjudication` (the default) a
+rebuttal is not enough on its own: `arh ask --rebuttal -n N` puts it to a
+reviewer, by default the one who said `UNSOUND`, and the gate passes only when
+the reviewer answers `WITHDRAWN`. A `MAINTAINED` answer blocks the iteration in
+every mode but `allow`. `require-rebuttal` accepts the producer's rebuttal
+without a judgment, and `allow` restores the behaviour of v0.3.0, which
+concluded an iteration whatever its verdict, and only reports it. Every `UNSOUND`
+review needs its answer, so asking again for a milder verdict does not help.
+
+`require_crosscheck`, `review_response` and `unsound_review` are recorded in
+`CLAIM.json` when an iteration is claimed, and `arh gate results` judges the
+iteration by those values: an edit made here afterwards applies to iterations
+claimed after it.
 
 `report_numbers` decides what the gate does with numbers in the report (with a
 decimal point or a percent sign) that match no file under `results/` at the
@@ -82,7 +91,7 @@ require_crosscheck = true
 # arh status flags an open iteration as STALE after this many hours without arh activity.
 lease_stale_hours = 24
 review_response   = require
-unsound_review    = require-rebuttal
+unsound_review    = require-adjudication
 report_numbers    = warn
 freeze_anchor     =
 ```

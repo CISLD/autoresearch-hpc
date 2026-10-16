@@ -41,31 +41,36 @@ def changed_terms(directory, config):
     return {k: [old.get(k), new.get(k)] for k in sorted(set(old) | set(new)) if old.get(k) != new.get(k)}
 
 
-def valid_records(directory):
-    directory = Path(directory)
-    valid = []
+def terms_and_families_ok(data, claimed):
+    """Whether a review or adjudication record ran under the iteration's terms and family rule."""
+    pf, vf = data['producer_family'], data['verifier_family']
+    # Which rule this review ran under is read from the review, not from today's config:
+    # relaxing require_foreign_family later must not retroactively validate an old review,
+    # and tightening it must not invalidate one. Records written before the key existed
+    # default to True, the behaviour they were produced under.
+    strict = data.get('require_foreign_family', True)
+    families_ok = (pf != vf and not data['same_family_override']) if strict else True
     # The review terms (verifier, fallbacks, family rule, bounds) are bound to the iteration when it
     # is claimed. A review taken under changed terms counts only if it records why (arh ask
     # --terms-changed): otherwise a producer could relax the rules of its own cross-check.
+    # Records older than the key carry no terms hash and are judged as before.
+    terms_ok = (not claimed or 'harness_config_sha256' not in data
+                or data['harness_config_sha256'] == claimed or bool(data.get('terms_changed')))
+    return (pf not in ('', 'unknown', 'mixed') and vf not in ('', 'unknown', 'mixed')
+            and families_ok and terms_ok)
+
+
+def valid_records(directory):
+    directory = Path(directory)
+    valid = []
     claimed = claimed_terms(directory)
     for record in sorted(directory.glob('CROSSCHECK_*.md.json')):
         try:
             data = json.loads(record.read_text())
             output = Path(str(record)[:-5])
             report = directory / 'results/report' / (directory.name + '_report.md')
-            pf, vf = data['producer_family'], data['verifier_family']
-            # Which rule this review ran under is read from the review, not from today's config:
-            # relaxing require_foreign_family later must not retroactively validate an old review,
-            # and tightening it must not invalidate one. Records written before the key existed
-            # default to True, the behaviour they were produced under.
-            strict = data.get('require_foreign_family', True)
-            families_ok = (pf != vf and not data['same_family_override']) if strict else True
-            # Records older than the key carry no terms hash and are judged as before.
-            terms_ok = (not claimed or 'harness_config_sha256' not in data
-                        or data['harness_config_sha256'] == claimed or bool(data.get('terms_changed')))
             if (data['exit_code'] == 0 and data['verdict'] in ('SOUND', 'QUALIFIED', 'UNSOUND')
-                    and pf not in ('', 'unknown', 'mixed') and vf not in ('', 'unknown', 'mixed')
-                    and families_ok and terms_ok
+                    and terms_and_families_ok(data, claimed)
                     and data['review_sha256'] == digest(output)
                     and data['report_sha256'] == digest(report)
                     and data['predeclaration_sha256'] == digest(directory / 'README.md')
@@ -74,6 +79,28 @@ def valid_records(directory):
         except (OSError, ValueError, KeyError, TypeError):
             continue
     return valid
+
+
+def valid_adjudications(directory):
+    """[(record, data)] for REBUTTAL_ records that judged a review still eligible and unchanged.
+    Which rebuttal text a record judged is compared by the caller (findings.py)."""
+    directory = Path(directory)
+    reviews = {Path(r).name: r for r in valid_records(directory)}
+    claimed = claimed_terms(directory)
+    out = []
+    for record in sorted(directory.glob('REBUTTAL_*.md.json')):
+        try:
+            data = json.loads(record.read_text())
+            output = Path(str(record)[:-5])
+            review = reviews.get(data['adjudicates'])
+            if (review and data['exit_code'] == 0 and data['adjudication'] in ('WITHDRAWN', 'MAINTAINED')
+                    and terms_and_families_ok(data, claimed)
+                    and data['adjudicated_review_sha256'] == digest(review)
+                    and data['review_sha256'] == digest(output)):
+                out.append((str(output), data))
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return out
 
 
 # A provider that refuses the call is an unavailable verifier, not a review. Some CLIs exit 0 when
@@ -168,6 +195,9 @@ def run():
     # '0' when the project accepts a same-family review; appended last so older callers keep working.
     strict = (sys.argv[12] if len(sys.argv) > 12 else '1') != '0'
     terms_reason = (sys.argv[13] if len(sys.argv) > 13 else '').strip()
+    # A JSON object for an adjudication of a rebuttal (arh ask --rebuttal): which review it judges,
+    # that review's hash and the rebuttal text's hash. Absent for an ordinary review.
+    judging = json.loads(sys.argv[14]) if len(sys.argv) > 14 and sys.argv[14] else None
     version = cli_version(version_cmd, cwd)
     prompt = Path(prompt_file).read_text()
     # {usage}: a path the command may write a JSON object of token counts or cost to.
@@ -255,10 +285,16 @@ def run():
             if sent_input:
                 sent_input.close()
     text = Path(output).read_text(errors="replace")
-    verdicts = re.findall(r'^VERDICT: (SOUND|QUALIFIED|UNSOUND)\s*$', text, re.M)
-    verdict = verdicts[0] if len(verdicts) == 1 else None
+    if judging:
+        found = re.findall(r'^ADJUDICATION: (WITHDRAWN|MAINTAINED)\s*$', text, re.M)
+        verdict = None
+        adjudication = found[0] if len(found) == 1 else None
+    else:
+        verdicts = re.findall(r'^VERDICT: (SOUND|QUALIFIED|UNSOUND)\s*$', text, re.M)
+        verdict = verdicts[0] if len(verdicts) == 1 else None
+        adjudication = None
     provider = None
-    if not verdict:
+    if not (verdict or adjudication):
         err = Path(output + '.err')
         provider = classify(text + '\n' + (err.read_text(errors="replace") if err.exists() else ''))
         if provider:
@@ -286,6 +322,10 @@ def run():
                 harness_config_sha256=terms, knowledge_sha256=knowledge_hashes(cwd),
                 terms_changed=(terms_reason or None) if changed else None,
                 terms_changed_keys=changed_terms(directory, config) if changed else None)
+    if judging:
+        data.update(kind='adjudication', adjudication=adjudication, adjudicates=judging['adjudicates'],
+                    adjudicated_review_sha256=judging['review_sha256'],
+                    rebuttal_sha256=judging['rebuttal_sha256'])
     with open(output + '.json', 'x') as record:
         json.dump(data, record, indent=2)
         record.write('\n')

@@ -18,8 +18,21 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   <reason>`; `Verdict: accepted` leaves the iteration unconcluded, and a later, milder review
   does not answer an earlier one. `unsound_review = allow` (`project.md`) restores the old
   behaviour. The ledger's cross-check column shows the verdicts (`QUALIFIED`,
-  `UNSOUND (rebutted)`) instead of `yes`, and `--skeleton` adds the verdict line.
+  `UNSOUND (rebutted, withdrawn)`) instead of `yes`, and `--skeleton` adds the verdict line.
   `PROTOCOL.md` §6.8.
+- **A rebuttal is judged by a reviewer.** Any rebuttal of three words or more let an
+  `UNSOUND` iteration conclude, so the producer still judged its own case.
+  `arh ask --rebuttal -n N` now sends the review, the rebuttal and the unchanged evidence to
+  a reviewer (by default the one who said `UNSOUND`), who answers `ADJUDICATION: WITHDRAWN`
+  or `MAINTAINED` in a `REBUTTAL_*` record bound to the review and to the rebuttal's text.
+  With `unsound_review = require-adjudication`, the new default, the gate passes only on
+  `WITHDRAWN`; a `MAINTAINED` answer blocks in every mode but `allow`.
+  `ask_max_adjudications` (default 1) limits judgments per review. `require-rebuttal` keeps
+  the unjudged rebuttal. `PROTOCOL.md` §6.8.
+- **The review policy is bound at claim.** `require_crosscheck`, `review_response` and
+  `unsound_review` were read from `project.md` when the gate ran, so a producer could relax
+  the rule its own iteration was judged by. `arh claim` records them in `CLAIM.json`
+  (`review_policy`) and the gate uses the recorded values. `PROTOCOL.md` §6.9.
 - **Empty sections no longer freeze.** A pre-declaration with every required heading present
   and every body empty froze. Each required section now needs text that is not the template's
   own. `PROTOCOL.md` §3.1.
@@ -40,8 +53,8 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   rewrite. If it fails, nothing is frozen.
 - `arh gate results` reports the runs of the iteration and names files a completed run used
   that were edited and run again (§5.9a).
-- Conformance scenarios E14–E17; E1's description now says what it tests (unfilled
-  placeholders).
+- Conformance scenarios E14–E18 (E16 now also covers an unjudged, a maintained and a
+  withdrawn rebuttal); E1's description now says what it tests (unfilled placeholders).
 
 ### Fixed
 - `harness/README.md` described an earlier ten-study state of the replication benchmark; its

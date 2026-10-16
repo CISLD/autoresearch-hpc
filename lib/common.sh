@@ -153,6 +153,26 @@ arh_harness_config_state() {
   else echo changed; fi
 }
 
+# The value of a review-policy key (require_crosscheck, review_response, unsound_review) that iteration
+# DIR is judged by: the one recorded when it was claimed, else project.md's (claims older than the
+# record). A later edit of project.md is named on stderr and does not apply.
+arh_review_policy() {
+  local dir="$1" key="$2" default="$3" current claimed
+  current=$(arh_config_get "$ARH_PROJ" "$key" "$default")
+  claimed=$(python3 -c 'import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get("review_policy", {}).get(sys.argv[2], ""))
+except (OSError, ValueError, AttributeError):
+    print("")' "$dir/CLAIM.json" "$key")
+  if [ -n "$claimed" ]; then
+    [ "$claimed" = "$current" ] || printf '  NOTE %s = %s in project.md, but %s when iteration %s was claimed: the claimed value applies\n' \
+      "$key" "$current" "$claimed" "${dir##*iteration}" >&2
+    printf '%s\n' "$claimed"
+  else
+    printf '%s\n' "$current"
+  fi
+}
+
 # Build an environment prefix once: arh_build_once PREFIX COMMAND... A prefix is complete when it
 # holds .arh-complete. Concurrent builders wait on PREFIX.building; a build left behind by a dead
 # process on this host is removed and redone. COMMAND runs where `set -e` does not apply, so it must

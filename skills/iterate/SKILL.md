@@ -94,9 +94,10 @@ after the review makes it ineligible. So:
   (`F1: accepted ...`, `F2: rejected, because ...`); `arh gate results -n N
   --skeleton` lists them, and the gate fails while one is unanswered;
 - answer an `UNSOUND` verdict with `Verdict: rebutted, because <reason>`, or
-  `Verdict: accepted` and leave the iteration unconcluded; the gate fails until
-  every `UNSOUND` review is rebutted, and the correction of an accepted one is a
-  new iteration;
+  `Verdict: accepted` and leave the iteration unconcluded; put a rebuttal to the
+  reviewer with `arh ask --rebuttal -n N`. The gate fails until the reviewer
+  withdraws every `UNSOUND` verdict; a maintained or accepted one means the
+  correction is a new iteration;
 - if a finding needs new computation, do it through `arh verify`, not by
   changing the iteration, and append the outcome to the response file.
 

@@ -78,7 +78,7 @@ case "$sub" in
       if [ -f "$dir/results/report/iteration${d}_report.md" ] && [ ! -f "$dir/PREDECLARATION.sha256" ]; then
         arh_fail "iteration $d — has a report but was never pre-declared"; fails=$((fails+1)); continue
       fi
-      if [ -f "$dir/results/report/iteration${d}_report.md" ] && [ "$(arh_config_get "$ARH_PROJ" require_crosscheck true)" = true ] && [ -z "$(arh_crosschecks "$dir")" ]; then
+      if [ -f "$dir/results/report/iteration${d}_report.md" ] && [ "$(arh_review_policy "$dir" require_crosscheck true 2>/dev/null)" = true ] && [ -z "$(arh_crosschecks "$dir")" ]; then
         arh_fail "iteration $d — no valid cross-check"; fails=$((fails+1))
       fi
       grep -q "iteration $d\b\|iteration${d}\b\|^| $d |" "$ARH_LEDGER" 2>/dev/null \

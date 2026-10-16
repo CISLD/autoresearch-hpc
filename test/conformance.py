@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Protocol conformance matrix: inject each protocol violation and check that arh refuses it.
 
-E1-E17 run this checkout's `arh` in a scratch project against a stand-in reviewer, so no model
+E1-E18 run this checkout's `arh` in a scratch project against a stand-in reviewer, so no model
 is called. E5b, E6, E9, E12 and E13 run real tasks and need --site, a configured site.md. A Slurm or PBS
 site submits real jobs, so put --workdir on a filesystem the compute nodes can see. Without
 --site those five are reported as skipped. The matrix is printed and written as JSON.
@@ -287,21 +287,50 @@ def main():
     case('E8', 'evidence changed after a review', 'review becomes ineligible',
          r.returncode != 0 and 'INELIGIBLE' in r.stdout, r.stdout)
 
-    # E16: the only review says UNSOUND. v0.3.0 concluded the iteration anyway.
-    reviewer.write_text("print('VERDICT: UNSOUND')\nprint('F1: the instrument double counts')\n")
+    # E16: the only review says UNSOUND. v0.3.0 concluded the iteration anyway, and a rebuttal on its
+    # own still let the producer judge its own case; the reviewer now judges the rebuttal.
+    def judging(answer):
+        reviewer.write_text("import sys\n"
+                            f"if 'ADJUDICATION:' in sys.argv[1]:\n    print('ADJUDICATION: {answer}')\n"
+                            "else:\n    print('VERDICT: UNSOUND')\n    print('F1: the instrument double counts')\n")
+    rebuttal = ('Verdict: rebutted, because the double count is outside the claim.\n'
+                'F1: rejected; the counted records do not overlap\n')
+    judging('MAINTAINED')
     n, it = iteration('E16 unsound review')
     must('ask', '-n', n)
     unanswered = arh('gate', 'results', '-n', n)
     (it / 'REVIEW_RESPONSE.md').write_text('Verdict: accepted\nF1: accepted; corrected in a new iteration\n')
     accepted = arh('gate', 'results', '-n', n)
-    (it / 'REVIEW_RESPONSE.md').write_text('Verdict: rebutted, because the double count is outside the claim.\n'
-                                           'F1: rejected; the counted records do not overlap\n')
-    rebutted = arh('gate', 'results', '-n', n)
+    (it / 'REVIEW_RESPONSE.md').write_text(rebuttal)
+    unjudged = arh('gate', 'results', '-n', n)
+    must('ask', '--rebuttal', '-n', n)
+    maintained = arh('gate', 'results', '-n', n)
+    judging('WITHDRAWN')
+    n, it = iteration('E16 unsound review withdrawn on rebuttal')
+    must('ask', '-n', n)
+    (it / 'REVIEW_RESPONSE.md').write_text(rebuttal)
+    must('ask', '--rebuttal', '-n', n)
+    withdrawn = arh('gate', 'results', '-n', n)
     reviewer.write_text("print('VERDICT: SOUND')\n")
-    case('E16', 'the only review returns UNSOUND', 'conclusion refused until a rebuttal is recorded',
-         unanswered.returncode != 0 and accepted.returncode != 0 and rebutted.returncode == 0,
-         f'refused unanswered {unanswered.returncode != 0}; refused when accepted {accepted.returncode != 0}; '
-         f'concludes with a recorded rebuttal {rebutted.returncode == 0}')
+    refused = {'unanswered': unanswered, 'accepted': accepted, 'unjudged': unjudged, 'maintained': maintained}
+    case('E16', 'the only review returns UNSOUND', 'conclusion refused until a reviewer withdraws it on a rebuttal',
+         all(r.returncode != 0 for r in refused.values()) and withdrawn.returncode == 0,
+         '; '.join(f'refused {k} {r.returncode != 0}' for k, r in refused.items())
+         + f'; concludes when the reviewer withdraws it {withdrawn.returncode == 0}')
+
+    # E18: the review policy is bound at claim; relaxing project.md afterwards changes nothing.
+    reviewer.write_text("print('VERDICT: UNSOUND')\n")
+    n, it = iteration('E18 review policy relaxed after the claim')
+    must('ask', '-n', n)
+    policy = project / '.arh/config/project.md'
+    original = policy.read_text()
+    policy.write_text(re.sub(r'(?m)^unsound_review[ \t]*=.*$', 'unsound_review = allow', original))
+    relaxed = arh('gate', 'results', '-n', n)
+    policy.write_text(original)
+    reviewer.write_text("print('VERDICT: SOUND')\n")
+    case('E18', 'review policy relaxed after the claim', 'the policy recorded at claim applies',
+         relaxed.returncode != 0 and 'the claimed value applies' in relaxed.stderr,
+         next((l.strip() for l in relaxed.stderr.splitlines() if 'claimed value' in l), relaxed.stderr[-300:]))
 
     # E11: the review terms were bound at claim; changing them needs a recorded reason.
     n, it = iteration('E11 review terms changed after the claim')

@@ -9,7 +9,7 @@ set -euo pipefail
 # shellcheck source=lib/common.sh
 . "${ARH_HOME:?}/lib/common.sh"
 
-role=adversary; n=""; harness=""; same_family=0; dry=0; extra=""; terms_reason=""
+role=adversary; n=""; harness=""; same_family=0; dry=0; extra=""; terms_reason=""; rebuttal=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --role)         role="$2"; shift 2 ;;
@@ -19,7 +19,11 @@ while [ $# -gt 0 ]; do
     --dry-run)      dry=1; shift ;;
     --note)         extra="$2"; shift 2 ;;
     --terms-changed) terms_reason="$2"; shift 2 ;;
+    --rebuttal)     rebuttal=1; shift ;;
     -h|--help) echo 'usage: arh ask --role {adversary|reimplementer|estimand-auditor|gotcha-scanner} -n N [--harness H] [--same-family] [--dry-run] [--note TEXT] [--terms-changed REASON]
+       arh ask --rebuttal -n N [--harness H] [--dry-run] [--note TEXT] [--terms-changed REASON]
+--rebuttal: put the producer'"'"'s rebuttal of an UNSOUND review to a reviewer (by default the one who said
+UNSOUND), who answers ADJUDICATION: WITHDRAWN or MAINTAINED. At most ask_max_adjudications per review.
 --terms-changed: required when .arh/config/harnesses.md changed since iteration N was claimed; the reason is kept in the review record.
 exit 75: provider usage/rate limit or authentication; 77: provider refused the content. Neither spends a review round.'; exit 0 ;;
     *) arh_die "unexpected argument: $1" ;;
@@ -58,7 +62,7 @@ roledoc="$ARH_HOME/skills/cross-check/roles/$role.md"
 # that fails them then has to be edited, which invalidates the hash-bound review and costs a
 # round. Check first, while fixing the report is still free.
 report_file="$dir/results/report/iteration${n}_report.md"
-if [ "$role" != reimplementer ] && [ -f "$report_file" ]; then
+if [ "$rebuttal" = 0 ] && [ "$role" != reimplementer ] && [ -f "$report_file" ]; then
   if ! rule_out=$("$ARH_HOME/bin/arh" gate rules "$report_file" 2>&1); then
     printf '%s\n' "$rule_out" | grep -E 'FAIL' >&2 || true
     arh_die "the report fails the standing rules; fix it before review (arh gate rules ${report_file#"$ARH_ROOT"/}).
@@ -89,11 +93,32 @@ ineligible() {
     || echo "no command configured for harness '$1' (see .arh/config/harnesses.md)"
 }
 
+# A rebuttal of an UNSOUND verdict is the producer judging its own case. --rebuttal puts it to a
+# reviewer, bound to the review and to the rebuttal's text; one review per call, oldest first.
+kind=review; prefix="CROSSCHECK_${role}_"; judging=""; review_h=""
+if [ "$rebuttal" = 1 ]; then
+  pending=$(python3 "$ARH_HOME/lib/findings.py" pending "$dir")
+  [ -n "$pending" ] || arh_die "iteration $n has no rebutted UNSOUND review waiting for a reviewer's judgment.
+       A rebuttal is 'Verdict: rebutted, because <reason>' in that review's part of REVIEW_RESPONSE.md;
+       arh gate results -n $n shows how each UNSOUND review stands."
+  IFS=$'\t' read -r judged_review rebuttal_sha review_h tried <<< "$(printf '%s\n' "$pending" | head -1)"
+  max_adj=$(arh_config_get "$ARH_HARN" ask_max_adjudications 1)
+  [ "$tried" -lt "$max_adj" ] || arh_die "the rebuttal of ${judged_review##*/} has been put to a reviewer $tried time(s), and
+       ask_max_adjudications is $max_adj. A maintained UNSOUND stands: leave this iteration unconcluded and
+       record the correction in a new one."
+  kind=adjudication; prefix=REBUTTAL_
+  judging=$(python3 -c 'import json,sys; print(json.dumps({"adjudicates": sys.argv[1], "review_sha256": sys.argv[2], "rebuttal_sha256": sys.argv[3]}))' \
+    "${judged_review##*/}" "$(arh_sha256 "$judged_review")" "$rebuttal_sha")
+fi
+
 # An explicit --harness is used alone. Otherwise the configured verifier goes first, and each
 # verifier_fallback is tried in turn when a verifier cannot review: a content-policy refusal (77),
 # which waiting does not change, or a usage limit (75), whose stated reset is not reliable either.
 # A provider once named a reset five days out, and a probe 44 minutes later succeeded (2026-09-16).
+# A rebuttal goes first to the reviewer who said UNSOUND.
 if [ -n "$harness" ]; then candidates=$harness
+elif [ "$kind" = adjudication ] && [ -n "$review_h" ]; then
+  candidates="$review_h $(arh_config_get "$ARH_HARN" verifier_fallback "")"
 else candidates="$(arh_config_get "$ARH_HARN" verifier codex) $(arh_config_get "$ARH_HARN" verifier_fallback "")"; fi
 primary=${candidates%% *}
 why=$(ineligible "$primary")
@@ -105,11 +130,29 @@ blind=0
 case "$role" in reimplementer) blind=1 ;; esac
 
 arh_guard_path "$dir"
-[ "$dry" = 1 ] || arh_lease_touch "$dir" "arh ask --role $role"
+[ "$dry" = 1 ] || arh_lease_touch "$dir" "$([ "$kind" = review ] && echo "arh ask --role $role" || echo 'arh ask --rebuttal')"
 prompt=$(mktemp "$dir/logs/prompt.XXXXXX")
 lock=""
 cleanup() { rm -f "$prompt"; [ -z "$lock" ] || { rm -f "$lock/owner.json"; rmdir "$lock"; }; }
 trap cleanup EXIT
+if [ "$kind" = adjudication ]; then
+  {
+    cat "$ARH_HOME/skills/cross-check/rebuttal.md"
+    printf '\n---\n\n## The work\n\nProject root: %s\nIteration: %s\n\n' "$ARH_ROOT" "$n"
+    printf '### Pre-declaration (written before any result existed)\n\n'
+    cat "$dir/README.md"
+    printf '\n### Report\n\n'
+    [ -f "$report_file" ] && cat "$report_file" || printf '(no report)\n'
+    printf '\n---\n\n## The review that returned UNSOUND (%s)\n\n' "${judged_review##*/}"
+    cat "$judged_review"
+    printf '\n---\n\n## The producer'"'"'s rebuttal\n\n'
+    python3 "$ARH_HOME/lib/findings.py" rebuttal "$dir" "$judged_review"
+    [ -n "$extra" ] && printf '\n### Additional instruction from the operator\n\n%s\n' "$extra"
+    printf '\n---\n\nBegin with a single line:\nADJUDICATION: WITHDRAWN | MAINTAINED\n'
+    printf '\nThen give your reasons, citing the evidence above. Keep the response within %s words.\n' \
+      "$(arh_config_get "$ARH_HARN" ask_output_words 500)"
+  } > "$prompt"
+else
 {
   cat "$roledoc"
   printf '\n---\n\n## The work under review\n\n'
@@ -156,10 +199,12 @@ trap cleanup EXIT
   printf 'so each can be answered by its id. Write "No findings." when there are none.\n'
   printf '\nKeep the response within %s words. Cite specific evidence; do not expand the task.\n' "$(arh_config_get "$ARH_HARN" ask_output_words 500)"
 } > "$prompt"
+fi
 # A credential pasted into a plan or report would leave the site with the review request.
 sources=("$dir/README.md")
 [ ! -f "$dir/results/report/iteration${n}_report.md" ] || sources+=("$dir/results/report/iteration${n}_report.md")
 [ "$blind" = 0 ] || sources+=("$dir/DAG.md")
+[ "$kind" = review ] || sources+=("$dir/REVIEW_RESPONSE.md")
 if ! arh_secret_scan "$extra" "${sources[@]}"; then
   [ "$dry" = 1 ] || arh_die "the review request would carry what looks like a credential (above). Nothing was sent.
        Remove it from the file; if it is a false positive, set secret_scan = off in .arh/config/harnesses.md"
@@ -167,7 +212,12 @@ if ! arh_secret_scan "$extra" "${sources[@]}"; then
 fi
 max_input=$(arh_config_get "$ARH_HARN" ask_max_input_bytes 48000)
 max_rounds=$(arh_config_get "$ARH_HARN" ask_max_rounds 2)
-if [ "$dry" = 1 ]; then
+if [ "$kind" = adjudication ]; then
+  size=$(wc -c < "$prompt")
+  [ "$size" -le "$max_input" ] || arh_die "the adjudication request is $size bytes; ask_max_input_bytes is $max_input.
+       Shorten the rebuttal, or raise ask_max_input_bytes and give the reason to --terms-changed"
+  [ "$dry" = 0 ] || { printf '# dry run — would invoke: %s\n\n' "$primary"; cat "$prompt"; exit 0; }
+elif [ "$dry" = 1 ]; then
   python3 "$ARH_HOME/lib/harness.py" budget "$dir" "$prompt" "$(arh_config_get "$ARH_HARN" "harness_${primary}_cmd" "")" \
     "$role" "$primary" "$pfam" "$(arh_config_get "$ARH_HARN" "harness_${primary}_family" unknown)" \
     "$max_input" "$max_rounds" "$extra" 1 >/dev/null
@@ -192,22 +242,30 @@ for h in $candidates; do
   fi
   vfam=$(arh_config_get "$ARH_HARN" "harness_${h}_family" unknown)
   cmd=$(arh_config_get "$ARH_HARN" "harness_${h}_cmd" "")
-  cached=$(python3 "$ARH_HOME/lib/harness.py" budget "$dir" "$prompt" "$cmd" "$role" "$h" "$pfam" "$vfam" "$max_input" "$max_rounds" "$extra" 0)
+  cached=""
+  [ "$kind" = adjudication ] \
+    || cached=$(python3 "$ARH_HOME/lib/harness.py" budget "$dir" "$prompt" "$cmd" "$role" "$h" "$pfam" "$vfam" "$max_input" "$max_rounds" "$extra" 0)
   if [ -n "$cached" ]; then
     printf 'reused unchanged review (no model call): %s\n' "$cached"
     grep -m1 '^VERDICT:' "$cached"
     exit 0
   fi
 
-  out=$(mktemp "$dir/CROSSCHECK_${role}_${h}_$(date -u +%Y%m%dT%H%M%SZ).XXXXXX")
+  out=$(mktemp "$dir/${prefix}${h}_$(date -u +%Y%m%dT%H%M%SZ).XXXXXX")
   mv "$out" "$out.md"
   out="$out.md"
   printf 'cross-check: role=%s harness=%s (%s) vs producer=%s (%s)\n' \
     "$role" "$h" "$vfam" "$producer" "$pfam" >&2
   {
+    if [ "$kind" = adjudication ]; then
+      printf '# Rebuttal adjudication — iteration %s\n\n' "$n"
+      printf '| field | value |\n|---|---|\n'
+      printf '| adjudicates | `%s` |\n| verifying harness | `%s` (%s) |\n' "${judged_review##*/}" "$h" "$vfam"
+    else
     printf '# Cross-check — iteration %s\n\n' "$n"
     printf '| field | value |\n|---|---|\n'
     printf '| role | `%s` |\n| verifying harness | `%s` (%s) |\n' "$role" "$h" "$vfam"
+    fi
     printf '| producing harness | `%s` (%s) |\n| same family | %s |\n' "$producer" "$pfam" \
            "$(if [ "$pfam" != "$vfam" ]; then echo no
               elif [ "$strict_family" = false ]; then echo 'yes — accepted, require_foreign_family = false'
@@ -222,7 +280,7 @@ for h in $candidates; do
   set +e
   python3 "$ARH_HOME/lib/harness.py" run "$cmd" "$prompt" "$ARH_ROOT" "$out" "$timeout_s" "$pfam" "$vfam" "$same_family" \
     "$(arh_config_get "$ARH_HARN" ask_max_output_bytes 8000)" "$(arh_config_get "$ARH_HARN" "harness_${h}_version_cmd" "")" \
-    "$strict_arg" "$terms_reason"
+    "$strict_arg" "$terms_reason" "$judging"
   rc=$?
   set -e
   cp "$prompt" "$out.prompt"
@@ -255,4 +313,9 @@ if [ "$rc" -ne 0 ]; then
 fi
 
 printf 'wrote %s\n' "$out"
-grep -m1 '^VERDICT:' "$out"
+if [ "$kind" = adjudication ]; then
+  grep -m1 '^ADJUDICATION:' "$out"
+  [ "$(printf '%s\n' "$pending" | grep -c .)" -le 1 ] || printf 'another rebutted UNSOUND review waits: arh ask --rebuttal -n %s\n' "$n"
+else
+  grep -m1 '^VERDICT:' "$out"
+fi

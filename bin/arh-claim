@@ -61,6 +61,13 @@ fi
 # so a later session can see whether the directives changed under the iteration.
 knowledge=$(python3 "$ARH_HOME/lib/project.py" knowledge-hashes "$ARH_ROOT")
 
+# The review policy the iteration is judged by. project.md is the producer's to edit, so the gate
+# reads these values from the claim: relaxing unsound_review mid-iteration does not relax it.
+policy=$(python3 -c 'import json, sys
+print(json.dumps(dict(zip(("require_crosscheck", "review_response", "unsound_review"), sys.argv[1:]))))' \
+  "$(arh_config_get "$ARH_PROJ" require_crosscheck true)" "$(arh_config_get "$ARH_PROJ" review_response require)" \
+  "$(arh_config_get "$ARH_PROJ" unsound_review require-adjudication)")
+
 cat > "$dir/CLAIM.json" <<EOF
 {
   "iteration": $n,
@@ -75,6 +82,7 @@ cat > "$dir/CLAIM.json" <<EOF
   "session": "${ARH_SESSION:-}",
   "harness_config_sha256": "$terms",
   "knowledge_sha256": $knowledge,
+  "review_policy": $policy,
   "freeze_journal": true
 }
 EOF

@@ -60,10 +60,14 @@ copy it from there, never by hand.
 
 An `UNSOUND` verdict needs its own answer in the review's part of
 `REVIEW_RESPONSE.md`: `Verdict: rebutted, because <reason>` if the iteration
-stands, or `Verdict: accepted` if it does not. An accepted `UNSOUND` iteration
-stays unconcluded and the correction goes into a new iteration; asking for
-another review does not answer the first one. Every required section of the
-pre-declaration needs content of its own, and a plan is frozen once:
+stands, or `Verdict: accepted` if it does not. A rebuttal goes to the reviewer
+with `arh ask --rebuttal -n N`, and the gate passes only if the reviewer answers
+`WITHDRAWN`. An accepted or maintained `UNSOUND` iteration stays unconcluded and
+the correction goes into a new iteration; asking for another review does not
+answer the first one. The review policy in `project.md` is bound to an iteration
+when it is claimed, so editing it mid-iteration changes nothing for that
+iteration. Every required section of the pre-declaration needs content of its
+own, and a plan is frozen once:
 `.arh/freezes.tsv` records each freeze, so deleting `PREDECLARATION.sha256` does
 not reopen it, and `arh ledger check` fails if an iteration directory is removed.
 

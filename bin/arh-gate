@@ -242,16 +242,16 @@ case "$sub" in
       fi
     else arh_fail "no report at ${report#"$ARH_ROOT"/}"; fails=$((fails+1)); fi
 
-    if [ "$(arh_config_get "$ARH_PROJ" require_crosscheck true)" = true ]; then
+    if [ "$(arh_review_policy "$dir" require_crosscheck true)" = true ]; then
       if arh_crosschecks "$dir" | grep -q .; then
         # Not "foreign": a project may accept same-family review, and describe says which ones were.
         arh_ok "eligible review(s); a verdict is evidence, not endorsement"
         python3 "$ARH_HOME/lib/harness.py" describe "$dir"
         # Protocol 6.5: every numbered finding is answered in REVIEW_RESPONSE.md (review_response).
-        python3 "$ARH_HOME/lib/findings.py" check "$dir" "$(arh_config_get "$ARH_PROJ" review_response require)" \
+        python3 "$ARH_HOME/lib/findings.py" check "$dir" "$(arh_review_policy "$dir" review_response require)" \
           || fails=$((fails+1))
-        # An UNSOUND verdict concludes only with a recorded rebuttal (unsound_review).
-        python3 "$ARH_HOME/lib/findings.py" verdicts "$dir" "$(arh_config_get "$ARH_PROJ" unsound_review require-rebuttal)" \
+        # An UNSOUND verdict concludes only with a rebuttal a reviewer accepted (unsound_review).
+        python3 "$ARH_HOME/lib/findings.py" verdicts "$dir" "$(arh_review_policy "$dir" unsound_review require-adjudication)" \
           || fails=$((fails+1))
       else
         arh_fail "no eligible cross-check; inspect execution metadata and artifact hashes"

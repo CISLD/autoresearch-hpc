@@ -37,7 +37,18 @@ lists every finding and fails while one is unanswered (`review_response` in
 
 An `UNSOUND` verdict is answered as a whole, in the same place:
 `Verdict: rebutted, because <reason>` when the iteration stands despite it, or
-`Verdict: accepted` when it does not. The gate fails until every `UNSOUND`
-review has a rebuttal (`unsound_review` in `project.md`); an accepted one leaves
-the iteration unconcluded, and the correction is a new iteration. A second,
-milder review does not answer the first.
+`Verdict: accepted` when it does not. An accepted one leaves the iteration
+unconcluded, and the correction is a new iteration. A second, milder review does
+not answer the first.
+
+A rebuttal is then judged by a reviewer, not by you:
+
+```bash
+arh ask --rebuttal -n N            # the reviewer who said UNSOUND answers WITHDRAWN or MAINTAINED
+```
+
+The judgment is written to `REBUTTAL_<harness>_<timestamp>.md`, bound to the
+review and to your rebuttal's text; editing the rebuttal afterwards voids it.
+The gate passes only on `WITHDRAWN` (`unsound_review = require-adjudication`,
+the default). A `MAINTAINED` verdict stands: leave the iteration unconcluded and
+correct it in a new one. One judgment per review (`ask_max_adjudications`).

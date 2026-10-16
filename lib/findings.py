@@ -11,9 +11,14 @@ otherwise the whole file is searched.
   findings.py check DIR MODE      MODE require|warn|off; prints a checklist; exit 1 if MODE is require
                                   and a numbered finding is unanswered
   findings.py skeleton DIR        a REVIEW_RESPONSE.md skeleton listing every numbered finding
-  findings.py verdicts DIR MODE   MODE require-rebuttal|allow; every eligible UNSOUND review needs a
-                                  recorded rebuttal before the iteration can conclude
+  findings.py verdicts DIR MODE   MODE require-adjudication|require-rebuttal|allow; every eligible
+                                  UNSOUND review needs a recorded rebuttal, and under
+                                  require-adjudication the reviewer's withdrawal, before the
+                                  iteration can conclude
   findings.py summary DIR         the verdicts of the eligible reviews, for the ledger
+  findings.py pending DIR         UNSOUND reviews whose rebuttal no reviewer has judged yet:
+                                  review, rebuttal sha256, review harness, adjudications so far
+  findings.py rebuttal DIR REVIEW the part of REVIEW_RESPONSE.md that answers REVIEW
 
 A review's verdict was once read by no gate: an iteration whose only review said UNSOUND concluded
 like any other (external review of v0.3.0, 2026-10-13; three benchmark iterations did). An UNSOUND
@@ -21,13 +26,19 @@ verdict is now answered in the review's part of REVIEW_RESPONSE.md by a line
 `Verdict: rebutted, because <reason>`; `Verdict: accepted` records that the producer agrees, and
 the iteration then stays unconcluded and the correction goes into a new iteration. Every UNSOUND
 review needs its answer, so asking again until a milder verdict arrives does not help.
+
+A rebuttal alone was still the producer judging its own case: any reason of three words passed.
+`arh ask --rebuttal` puts it to a reviewer, who answers `ADJUDICATION: WITHDRAWN` or `MAINTAINED`
+in a REBUTTAL_ record bound to the review and to the rebuttal's text. A maintained UNSOUND blocks
+the iteration in every mode but `allow`, whichever reviewer said it.
 """
+import hashlib
 import json
 from pathlib import Path
 import re
 import sys
 
-from harness import valid_records
+from harness import valid_adjudications, valid_records
 
 FINDING = re.compile(r'^\s*(?:[-*+]\s+|\d+\.\s+)?(?:\*\*|__)?\[?(F\d{1,3})\]?(?:\*\*|__)?\s*[:.)\]–—-]\s*(?:\*\*|__)?\s*(.+)$')
 DECISION = re.compile(r"\b(accept(?:ed)?|reject(?:ed)?|fix(?:ed)?|addressed|deferred|disput(?:e|ed)|declined|"
@@ -79,28 +90,71 @@ def verdict_answer(text, review):
     return kind, found.group(2).strip()
 
 
+def response_text(directory):
+    response = Path(directory) / 'REVIEW_RESPONSE.md'
+    return response.read_text(errors='replace') if response.is_file() else None
+
+
+def rebuttal_sha(text, review):
+    """SHA-256 of the part of the response that answers REVIEW; an adjudication is bound to it."""
+    return hashlib.sha256(scope(text or '', review).encode()).hexdigest()
+
+
+def judged(directory, review, text):
+    """Valid adjudications of REVIEW's current rebuttal: [(record name, WITHDRAWN|MAINTAINED)]."""
+    name, current = Path(review).name, rebuttal_sha(text, review)
+    return [(Path(record).name, data['adjudication']) for record, data in valid_adjudications(directory)
+            if data.get('adjudicates') == name and data.get('rebuttal_sha256') == current]
+
+
+def standing(directory, review, text):
+    """How an UNSOUND REVIEW stands: (state, detail). States: unanswered, accepted, no-reason,
+    unadjudicated, withdrawn, maintained."""
+    answer = verdict_answer(text, review)
+    if not answer:
+        return 'unanswered', None
+    if answer[0] == 'accepted':
+        return 'accepted', None
+    if len(answer[1].split()) < 3:
+        return 'no-reason', None
+    outcomes = judged(directory, review, text)
+    maintained = [record for record, outcome in outcomes if outcome == 'MAINTAINED']
+    if maintained:
+        return 'maintained', maintained[0]
+    if outcomes:
+        return 'withdrawn', outcomes[-1][0]
+    return 'unadjudicated', answer[1]
+
+
 def verdicts(directory, mode):
     directory = Path(directory)
-    response = directory / 'REVIEW_RESPONSE.md'
-    text = response.read_text(errors='replace') if response.is_file() else None
+    text = response_text(directory)
+    n = directory.name.removeprefix('iteration')
     fails = 0
     for review in valid_records(directory):
         if verdict_of(review) != 'UNSOUND':
             continue
         name = Path(review).name
-        answer = verdict_answer(text, review)
-        if answer and answer[0] == 'rebutted' and len(answer[1].split()) >= 3:
-            print(f'  OK   {name}: UNSOUND, rebutted by the producer: {answer[1][:120]}')
+        state, detail = standing(directory, review, text)
+        if state == 'withdrawn':
+            print(f'  OK   {name}: UNSOUND, rebutted, and the reviewer withdrew it ({detail})')
             continue
-        if answer and answer[0] == 'rebutted':
-            problem = 'UNSOUND, and the rebuttal gives no reason'
-        elif answer:
-            problem = ('UNSOUND, and the response accepts it: this iteration does not conclude; '
-                       'record the correction in a new iteration')
-        else:
-            problem = ("UNSOUND, with no recorded answer: add 'Verdict: rebutted, because <reason>' "
-                       "to its part of REVIEW_RESPONSE.md, or leave this iteration unconcluded and "
-                       "correct it in a new one")
+        if state == 'unadjudicated' and mode == 'require-rebuttal':
+            print(f'  OK   {name}: UNSOUND, rebutted by the producer, not put to a reviewer '
+                  f'(unsound_review = require-rebuttal): {detail[:120]}')
+            continue
+        problem = {
+            'unanswered': ("UNSOUND, with no recorded answer: add 'Verdict: rebutted, because <reason>' "
+                           "to its part of REVIEW_RESPONSE.md, or leave this iteration unconcluded and "
+                           "correct it in a new one"),
+            'accepted': ('UNSOUND, and the response accepts it: this iteration does not conclude; '
+                         'record the correction in a new iteration'),
+            'no-reason': 'UNSOUND, and the rebuttal gives no reason',
+            'unadjudicated': (f'UNSOUND, rebutted, and no reviewer has judged the rebuttal: '
+                              f'arh ask --rebuttal -n {n}'),
+            'maintained': (f'UNSOUND, and the reviewer maintained it over the rebuttal ({detail}): '
+                           'this iteration does not conclude; record the correction in a new iteration'),
+        }[state]
         if mode == 'allow':
             print(f'  WARN {name}: {problem} (unsound_review = allow)')
         else:
@@ -109,19 +163,47 @@ def verdicts(directory, mode):
     return 1 if fails else 0
 
 
+LABELS = {'unanswered': 'unanswered', 'accepted': 'accepted', 'no-reason': 'rebutted without reason',
+          'unadjudicated': 'rebutted, unadjudicated', 'withdrawn': 'rebutted, withdrawn',
+          'maintained': 'rebutted, maintained'}
+
+
 def summary(directory):
-    """'QUALIFIED', 'UNSOUND (rebutted), QUALIFIED', ... for the eligible reviews, oldest first."""
+    """'QUALIFIED', 'UNSOUND (rebutted, withdrawn), QUALIFIED', ... for the eligible reviews."""
     directory = Path(directory)
-    response = directory / 'REVIEW_RESPONSE.md'
-    text = response.read_text(errors='replace') if response.is_file() else None
+    text = response_text(directory)
     out = []
     for review in valid_records(directory):
         verdict = verdict_of(review) or '?'
         if verdict == 'UNSOUND':
-            answer = verdict_answer(text, review)
-            verdict += f' ({answer[0]})' if answer else ' (unanswered)'
+            verdict += f' ({LABELS[standing(directory, review, text)[0]]})'
         out.append(verdict)
     return ', '.join(out)
+
+
+def review_harness(review):
+    """The harness that wrote REVIEW, from its file name CROSSCHECK_<role>_<harness>_<time>."""
+    match = re.match(r'CROSSCHECK_[^_]+_(.+)_\d{8}T\d{6}Z', Path(review).name)
+    return match.group(1) if match else ''
+
+
+def pending(directory):
+    """Rebutted UNSOUND reviews with no adjudication of their current rebuttal, one line each."""
+    directory = Path(directory)
+    text = response_text(directory)
+    for review in valid_records(directory):
+        if verdict_of(review) != 'UNSOUND' or standing(directory, review, text)[0] != 'unadjudicated':
+            continue
+        # Provider refusals are not adjudications and do not count against the limit.
+        tried = 0
+        for record in directory.glob('REBUTTAL_*.md.json'):
+            try:
+                data = json.loads(record.read_text())
+            except (OSError, ValueError):
+                continue
+            if data.get('adjudicates') == Path(review).name and not data.get('provider_error'):
+                tried += 1
+        print('\t'.join((review, rebuttal_sha(text, review), review_harness(review), str(tried))))
 
 
 def decision(text, fid):
@@ -179,8 +261,8 @@ def skeleton(directory):
         if review != current:
             print(f'\n## {review}\n')
             if review in unsound:
-                print('Verdict: <rebutted, because <reason> | accepted>  (UNSOUND: accepted leaves this '
-                      'iteration unconcluded)\n')
+                print('Verdict: <rebutted, because <reason> | accepted>  (UNSOUND: a rebuttal goes to the '
+                      'reviewer with arh ask --rebuttal; accepted leaves this iteration unconcluded)\n')
             current = review
         print(f'- {fid}: <accepted | rejected | fixed | deferred | disputed> — <reason>  ({summary})')
     for review in sorted(unsound - {r[0] for r in rows}):
@@ -198,5 +280,9 @@ if __name__ == '__main__':
         sys.exit(verdicts(sys.argv[2], sys.argv[3]))
     elif sys.argv[1] == 'summary':
         print(summary(sys.argv[2]))
+    elif sys.argv[1] == 'pending':
+        pending(sys.argv[2])
+    elif sys.argv[1] == 'rebuttal':
+        sys.stdout.write(scope(response_text(sys.argv[2]) or '', sys.argv[3]))
     else:
         sys.exit(f'unknown command: {sys.argv[1]}')

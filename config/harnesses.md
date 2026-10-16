@@ -88,6 +88,8 @@ ask_max_input_bytes = 48000
 ask_max_output_bytes = 8000
 ask_output_words = 500
 ask_max_rounds = 2
+# How many times one UNSOUND review's rebuttal may be put to a reviewer (arh ask --rebuttal).
+ask_max_adjudications = 1
 ```
 
 ## Refusals, fallbacks and token usage

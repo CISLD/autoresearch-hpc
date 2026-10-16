@@ -218,6 +218,17 @@ harness_reviewer_cmd = python3 "{self.mock}" {{prompt}}{cmd_extra}
         (self.root/'.arh/config/site.md').write_text(f'```arh-config\ncontainer_runtime = apptainer\nimage_test = {image}\n```\n')
         self.call('run', 'test', '--', 'true', good=False)
 
+    JUDGE = ("import sys\n"
+             "if 'ADJUDICATION:' in sys.argv[1]:\n    print('ADJUDICATION: {answer}')\n"
+             "else:\n    print('VERDICT: UNSOUND')")
+    REBUTTAL = 'Verdict: rebutted, because the flagged step changes no reported value.\n'
+
+    def bind_policy(self, **policy):
+        """Fixture shortcut: iteration 1 counts as claimed under this review policy."""
+        claim = json.loads((self.it / 'CLAIM.json').read_text())
+        claim.setdefault('review_policy', {}).update(policy)
+        (self.it / 'CLAIM.json').write_text(json.dumps(claim, indent=2) + '\n')
+
     def test_unsound_verdict_needs_a_recorded_rebuttal(self):
         self.configure("print('VERDICT: UNSOUND')")
         self.ask(); result=self.gate(good=False); self.assertIn('UNSOUND, with no recorded answer', result.stdout)
@@ -226,17 +237,90 @@ harness_reviewer_cmd = python3 "{self.mock}" {{prompt}}{cmd_extra}
         self.assertIn('the response accepts it', self.gate(good=False).stdout)
         response.write_text('Verdict: rebutted\n')
         self.assertIn('gives no reason', self.gate(good=False).stdout)
-        response.write_text('Verdict: rebutted, because the flagged step changes no reported value.\n')
-        self.assertIn('UNSOUND, rebutted by the producer', self.gate().stdout)
+        response.write_text(self.REBUTTAL)
+        self.assertIn('no reviewer has judged the rebuttal: arh ask --rebuttal -n 1', self.gate(good=False).stdout)
         self.call('ledger', 'render')
-        self.assertIn('UNSOUND (rebutted)', (self.root / 'PROGRESS.md').read_text())
+        self.assertIn('UNSOUND (rebutted, unadjudicated)', (self.root / 'PROGRESS.md').read_text())
         self.assertIn('Verdict: <rebutted', self.call('gate', 'results', '-n', '1', '--skeleton').stdout)
 
+    def test_a_rebuttal_the_reviewer_withdraws_concludes(self):
+        self.configure(self.JUDGE.format(answer='WITHDRAWN'))
+        self.ask(); (self.it / 'REVIEW_RESPONSE.md').write_text(self.REBUTTAL)
+        out = self.call('ask', '--rebuttal', '-n', '1').stdout
+        self.assertIn('ADJUDICATION: WITHDRAWN', out)
+        record = next(self.it.glob('REBUTTAL_reviewer_*.md'))
+        data = json.loads(Path(str(record) + '.json').read_text())
+        self.assertEqual((data['kind'], data['adjudication']), ('adjudication', 'WITHDRAWN'))
+        self.assertTrue(data['adjudicates'].startswith('CROSSCHECK_adversary_reviewer_'))
+        prompt = Path(str(record) + '.prompt').read_text()
+        self.assertIn('VERDICT: UNSOUND', prompt); self.assertIn('changes no reported value', prompt)
+        self.assertIn('the reviewer withdrew it', self.gate().stdout)
+        self.call('ledger', 'render')
+        self.assertIn('UNSOUND (rebutted, withdrawn)', (self.root / 'PROGRESS.md').read_text())
+        # Nothing left to judge, and a judgment is not a review round.
+        self.assertIn('no rebutted UNSOUND review waiting', self.call('ask', '--rebuttal', '-n', '1', good=False).stderr)
+        self.assertEqual(len(list(self.it.glob('CROSSCHECK_*.md'))), 1)
+
+    def test_a_maintained_unsound_blocks_and_cannot_be_asked_again(self):
+        self.configure(self.JUDGE.format(answer='MAINTAINED'))
+        self.ask(); response = self.it / 'REVIEW_RESPONSE.md'; response.write_text(self.REBUTTAL)
+        self.call('ask', '--rebuttal', '-n', '1')
+        self.assertIn('the reviewer maintained it over the rebuttal', self.gate(good=False).stdout)
+        # Rewording the rebuttal voids the judgment but does not buy a second one.
+        response.write_text('Verdict: rebutted, because on reflection the step is harmless.\n')
+        self.gate(good=False)
+        self.assertIn('ask_max_adjudications is 1', self.call('ask', '--rebuttal', '-n', '1', good=False).stderr)
+        # A maintained verdict blocks under require-rebuttal too; only allow lets it through.
+        response.write_text(self.REBUTTAL)
+        self.bind_policy(unsound_review='require-rebuttal')
+        self.assertIn('maintained', self.gate(good=False).stdout)
+        self.bind_policy(unsound_review='allow')
+        self.assertIn('WARN', self.gate().stdout)
+
+    def test_editing_the_rebuttal_voids_its_judgment(self):
+        self.configure(self.JUDGE.format(answer='WITHDRAWN'))
+        self.ask(); response = self.it / 'REVIEW_RESPONSE.md'; response.write_text(self.REBUTTAL)
+        self.call('ask', '--rebuttal', '-n', '1'); self.gate()
+        response.write_text(self.REBUTTAL + 'Also the reviewer misread the table.\n')
+        self.assertIn('no reviewer has judged the rebuttal', self.gate(good=False).stdout)
+
+    def test_require_rebuttal_accepts_an_unjudged_rebuttal(self):
+        self.bind_policy(unsound_review='require-rebuttal')
+        self.configure("print('VERDICT: UNSOUND')")
+        self.ask(); (self.it / 'REVIEW_RESPONSE.md').write_text(self.REBUTTAL)
+        self.assertIn('not put to a reviewer', self.gate().stdout)
+
+    def test_a_rebuttal_is_judged_under_the_family_rule(self):
+        self.configure(self.JUDGE.format(answer='WITHDRAWN'),
+                       extra_config=f'harness_twin_family = openai\nharness_twin_cmd = python3 "{self.mock}" {{prompt}}\n')
+        self.ask(); (self.it / 'REVIEW_RESPONSE.md').write_text(self.REBUTTAL)
+        self.assertIn('same model family', self.call('ask', '--rebuttal', '-n', '1', '--harness', 'twin', good=False).stderr)
+        self.assertFalse(list(self.it.glob('REBUTTAL_*')))
+
+    def test_rebuttal_dry_run_sends_nothing(self):
+        self.configure(self.JUDGE.format(answer='WITHDRAWN'))
+        self.ask(); (self.it / 'REVIEW_RESPONSE.md').write_text(self.REBUTTAL)
+        out = self.call('ask', '--rebuttal', '-n', '1', '--dry-run').stdout
+        self.assertIn('ADJUDICATION: WITHDRAWN | MAINTAINED', out); self.assertIn('changes no reported value', out)
+        self.assertFalse(list(self.it.glob('REBUTTAL_*')))
+
     def test_unsound_verdict_is_only_reported_when_the_project_allows_it(self):
-        cfg = self.root / '.arh/config/project.md'
-        cfg.write_text(cfg.read_text().replace('unsound_review    = require-rebuttal', 'unsound_review    = allow'))
+        self.bind_policy(unsound_review='allow')
         self.configure("print('VERDICT: UNSOUND')")
         self.ask(); self.assertIn('WARN', self.gate().stdout)
+
+    def test_the_review_policy_is_read_from_the_claim(self):
+        self.assertEqual(json.loads((self.it / 'CLAIM.json').read_text())['review_policy'],
+                         {'require_crosscheck': 'true', 'review_response': 'require',
+                          'unsound_review': 'require-adjudication'})
+        self.set_config('project.md', unsound_review='allow', require_crosscheck='false')
+        self.configure("print('VERDICT: UNSOUND')")
+        self.ask(); result = self.gate(good=False)
+        self.assertIn('FAIL', result.stdout); self.assertIn('the claimed value applies', result.stderr)
+        # An iteration claimed after the edit is judged by the new policy.
+        n = self.call('claim', '-t', 'after the edit').stdout.split()[0]
+        policy = json.loads((self.root / f'iterations/iteration{n}/CLAIM.json').read_text())['review_policy']
+        self.assertEqual(policy['unsound_review'], 'allow')
 
     def test_a_milder_second_review_does_not_answer_an_unsound_one(self):
         self.configure("print('VERDICT: UNSOUND')")
@@ -1414,7 +1498,7 @@ elif args[0] == 'list':
         passed = self.gate().stdout
         self.assertIn('answers 2 of 2', passed)
         self.assertIn('F2 answered (rejected)', passed)
-        self.set_config('project.md', review_response='warn')
+        self.bind_policy(review_response='warn')       # the policy the iteration was claimed under
         response.unlink()
         self.assertIn('WARN no REVIEW_RESPONSE.md, and the review(s) list 2', self.gate().stdout)
 
