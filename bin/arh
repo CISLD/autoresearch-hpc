@@ -49,6 +49,7 @@ arh — AutoResearch HPC
   arh inputs {check|list}        check that declared inputs are whole (CRAM/BGZF end markers; --deep)
   arh lease  {show|take} -n N    who is working on an iteration, and taking it over on purpose
   arh sessions -n N              the agent sessions that acted on an iteration (and Entire checkpoints)
+  arh memory {add|list|show}     findings of concluded iterations, carried into later work
   arh env    {create|path|list}  scientific environments: solve once in the task image, lock, reuse
   arh guard  PATH...             assert paths are writable under the project
   arh ledger [render|check]      maintain the project record
@@ -71,7 +72,7 @@ case "$cmd" in
       "$(cat "$ARH_HOME/VERSION" 2>/dev/null || echo unknown)" \
       "$(sed -n 's/^# The AutoResearch HPC protocol, v//p' "$ARH_HOME/PROTOCOL.md" 2>/dev/null || echo unknown)"
     ;;
-  init|migrate|claim|new|arm|gate|freeze|ask|evoke|delegate|dispatch|dag|replicate|verify|run|submit|note|wait|inputs|lease|sessions|env|guard|ledger|status|doctor|site|next|context)
+  init|migrate|claim|new|arm|gate|freeze|ask|evoke|delegate|dispatch|dag|replicate|verify|run|submit|note|wait|inputs|lease|sessions|memory|env|guard|ledger|status|doctor|site|next|context)
     exec "$ARH_HOME/bin/arh-$cmd" "$@" ;;
   *) printf 'arh: unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;
 esac

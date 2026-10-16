@@ -581,6 +581,47 @@ arh('dispatch', 'report', '-n', n, '--outcome', 'concluded', '--summary', 'The f
         self.assertEqual(receipt['entire_checkpoints'], ['01JFIXTURECHECKPOINT0000AB'])
         self.assertTrue(receipt['sessions'])
 
+    def test_only_a_concluded_iteration_enters_memory(self):
+        finding = 'The fixture passes its one check: one failure is rejected by the negative control.'
+        self.assertIn('has not concluded', self.call('memory', 'add', '-n', '1', finding, good=False).stderr)
+        self.ask(); self.gate()
+        self.assertIn('state the finding', self.call('memory', 'add', '-n', '1', 'too short', good=False).stderr)
+        self.assertIn('credential', self.call('memory', 'add', '-n', '1', 'the token is ghp_' + 'a' * 40 + ' found here',
+                                              good=False).stderr)
+        self.assertIn('recorded F1.1', self.call('memory', 'add', '-n', '1', finding).stdout)
+        text = (self.root / 'knowledge/F1.1.md').read_text()
+        self.assertTrue(text.startswith('---\nid: F1.1\niteration: 1\n'))
+        self.assertIn('report_sha256: ' + hashlib.sha256(self.report.read_bytes()).hexdigest(), text)
+        self.assertIn('verdicts: "SOUND"', text)
+        self.assertIn('F1.1', self.call('memory', 'list').stdout)
+        self.assertIn(finding, self.call('memory', 'show', 'F1.1').stdout)
+        context = json.loads(self.call('context', '-n', '1').stdout)
+        self.assertEqual(context['memory']['findings'][0]['id'], 'F1.1')
+        # The evidence changes: the finding no longer rests on a conclusion.
+        self.report.write_text(self.report.read_text() + 'Edited after the finding was recorded.\n')
+        self.assertIn('no findings recorded that are current', self.call('memory', 'list').stdout)
+        self.assertIn('stale', self.call('memory', 'list', '--all').stdout)
+        self.assertEqual(json.loads(self.call('context', '-n', '1').stdout)['memory']['findings'], [])
+
+    def test_a_later_finding_supersedes_an_earlier_one(self):
+        self.ask(); self.gate()
+        self.call('memory', 'add', '-n', '1', 'The first estimate is 0.0184 raw units, from the fixture.')
+        n = self.call('claim', '-t', 'corrected', '--continues', '1').stdout.split()[0]
+        it = self.root / f'iterations/iteration{n}'
+        self.call('new', '-n', n); it.joinpath('README.md').write_text((self.it / 'README.md').read_text())
+        self.call('gate', 'predeclare', '-n', n)
+        report = it / f'results/report/iteration{n}_report.md'
+        report.parent.mkdir(parents=True, exist_ok=True); report.write_text(self.report.read_text())
+        self.call('ask', '-n', n); self.call('gate', 'results', '-n', n)
+        self.assertIn('no finding F9.9', self.call('memory', 'add', '-n', n, '--supersedes', 'F9.9',
+                                                   'The corrected estimate is 0.0200 raw units here.', good=False).stderr)
+        self.assertIn('F1.1 is now superseded', self.call('memory', 'add', '-n', n, '--supersedes', 'F1.1',
+                                                         'The corrected estimate is 0.0200 raw units here.').stdout)
+        listed = self.call('memory', 'list').stdout
+        self.assertIn(f'F{n}.1', listed); self.assertNotIn('F1.1', listed)
+        self.assertIn(f'superseded by F{n}.1', self.call('memory', 'list', '--all').stdout)
+        self.assertTrue((self.root / 'knowledge/F1.1.md').is_file())          # kept, not deleted
+
     def test_a_milder_second_review_does_not_answer_an_unsound_one(self):
         self.configure("print('VERDICT: UNSOUND')")
         self.ask()

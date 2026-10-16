@@ -284,6 +284,11 @@ is never shown without the attempts that preceded it.
 implementation SHOULD link transcripts that another tool keeps rather than copy
 them, and MUST keep the output of sessions it starts itself (§6d.4).
 
+8.8 A finding carried into later work SHOULD come from a concluded iteration
+and cite the evidence it rests on. A superseded finding MUST stay in the record,
+marked as superseded, and a finding whose iteration no longer holds its
+conclusion MUST NOT be presented as current.
+
 ## 9. The operator
 
 9.1 An operator challenge to a result MUST trigger a new iteration, never an

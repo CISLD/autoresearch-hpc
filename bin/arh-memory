@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Findings carried into later work, taken only from concluded iterations (see lib/memory.py).
+set -euo pipefail
+# shellcheck source=lib/common.sh
+. "${ARH_HOME:?}/lib/common.sh"
+usage() {
+  cat <<'USAGE'
+usage:
+  arh memory add -n N [--supersedes ID] TEXT   record a finding of concluded iteration N
+  arh memory list [--all]                      current findings (--all: superseded and stale too)
+  arh memory show ID                           one finding in full, with the evidence it cites
+Findings are Markdown files with YAML front matter under knowledge/; any harness, reviewer or
+Markdown tool can read them. arh context -n N lists the current ones.
+USAGE
+}
+sub="${1-}"; [ $# -eq 0 ] || shift
+arh_load_project
+case "$sub" in
+  add)
+    n=""; supersedes=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -n|--iteration) n="${2-}"; shift 2 ;;
+        --supersedes)   supersedes="${2-}"; shift 2 ;;
+        *) break ;;
+      esac
+    done
+    case "$n" in ""|*[!0-9]*) arh_die "which iteration? arh memory add -n N TEXT" ;; esac
+    [ $# -gt 0 ] || arh_die "the finding is missing: arh memory add -n $n 'what the iteration established'"
+    dir="$ARH_ITERS/iteration$n"
+    [ -d "$dir" ] || arh_die "no iteration $n"
+    arh_lease_touch "$dir" "arh memory add"
+    exec python3 "$ARH_HOME/lib/memory.py" add "$ARH_ROOT" "$dir" "$*" "$supersedes" ;;
+  list) exec python3 "$ARH_HOME/lib/memory.py" list "$ARH_ROOT" "$ARH_ITERS" "$([ "${1-}" = --all ] && echo all)" ;;
+  show) [ -n "${1-}" ] || arh_die "usage: arh memory show ID"; exec python3 "$ARH_HOME/lib/memory.py" show "$ARH_ROOT" "$1" ;;
+  -h|--help|help|"") usage ;;
+  *) arh_die "unknown: arh memory $sub (add, list, show)" ;;
+esac

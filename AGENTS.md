@@ -218,7 +218,10 @@ workflow {
    history) is invisible to every other harness, to a second account's session and
    to the reviewer; it may hold a pointer to the project file, not the fact. A
    pitfall of a tool or of the cluster also goes in the `site_gotchas` file when
-   one is configured and writable.
+   one is configured and writable. What a concluded iteration established goes
+   in with `arh memory add -n N 'the finding'` (only after `arh gate results`
+   passed; `--supersedes ID` when it corrects an earlier one). `arh context`
+   lists the current findings; `arh memory show ID` gives one with its evidence.
 
 ## Reporting
 

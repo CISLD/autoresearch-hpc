@@ -7,6 +7,7 @@ import sys
 from harness import digest, valid_records
 from project import knowledge
 from freeze import state as freeze_state
+from memory import index as memory_index
 
 n = sys.argv[1]
 if not n.isdigit():
@@ -46,6 +47,8 @@ state['knowledge'] = {name: {'path': str(path.relative_to(root)) if root in path
                                             ('unchanged' if claimed[name] == digest(path) else 'changed')}
                       for name, path in knowledge(root).items()}
 state['freeze'] = freeze_state(root, directory)[0]
+# Findings of concluded iterations (arh memory): an index only; arh memory show ID gives one in full.
+state['memory'] = memory_index(root, os.environ['ARH_ITERS'], 20)
 # Work that ran outside arh submit (arh note): the last few, so a resuming session sees it.
 notes = directory / 'metadata/notes.jsonl'
 state['notes'] = [json.loads(line) for line in (notes.read_text().splitlines() if notes.is_file() else [])
