@@ -22,7 +22,8 @@ import sys
 
 import attempts
 from findings import summary as verdict_summary
-from secret_scan import PATTERNS
+from secret_scan import findings as secret_findings
+import tempfile
 
 ID = re.compile(r'^F\d+\.\d+$')
 
@@ -76,7 +77,9 @@ def add(root, directory, text, supersedes):
                  'concluded iteration\'s findings are carried into later work')
     if len(text.split()) < 5:
         sys.exit('arh: state the finding in a sentence or more, in the units of its estimand')
-    leaked = [kind for kind, pattern in PATTERNS if pattern.search(text)]
+    with tempfile.NamedTemporaryFile('w', suffix='.md') as probe:
+        probe.write(text); probe.flush()
+        leaked = sorted({kind for _, kind, _ in secret_findings(probe.name)})
     if leaked:
         sys.exit(f"arh: the finding carries what looks like a credential ({', '.join(leaked)}); nothing was recorded")
     found = entries(root)

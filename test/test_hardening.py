@@ -27,6 +27,7 @@ _scheduler = re.findall(r'(?m)^[ \t]*scheduler[ \t]*=[ \t]*(\S*)', Path(_site).r
 if _scheduler and _scheduler[0] != 'local':
     sys.exit(f'ARH_TEST_SITE must set scheduler = local, not {_scheduler[0]}: {_site}')
 needs_network = unittest.skipUnless(os.environ.get('ARH_TEST_NETWORK'), 'set ARH_TEST_NETWORK=1 to solve real packages')
+needs_gitleaks = unittest.skipUnless(shutil.which('gitleaks'), 'gitleaks is not on PATH')
 REFUSE = ("import sys; sys.stderr.write('This content was flagged for possible biological risk. "
           "If this seems wrong, try rephrasing your request.\\n'); raise SystemExit(1)")
 
@@ -657,6 +658,35 @@ arh('dispatch', 'report', '-n', n, '--outcome', 'concluded', '--summary', 'The f
         record = it / 'metadata/dispatch/001'
         self.assertIn('memory_visible False', (record / 'session.log').read_text())
         self.assertEqual(json.loads((record / 'run.json').read_text())['home'], 'fresh')
+
+    # Built from parts so the source never holds a webhook-shaped literal (GitHub push protection).
+    HOOK = 'https://hooks.slack.com/services/' + '/'.join(('T01ABCDEF12', 'B01ABCDEF34', 'abcdefghijklmnopqrstuvwx'))
+
+    @needs_gitleaks
+    def test_gitleaks_rules_apply_on_top_of_the_built_in_patterns(self):
+        # A Slack webhook URL: no built-in pattern models it; gitleaks has a rule for it.
+        self.report.write_text(self.report.read_text() + f'Alerts go to {self.HOOK}.\n')
+        self.assertIn('gitleaks: slack-webhook-url', self.call('ask', '-n', '1', good=False).stderr)
+        self.configure(extra_config='secret_scanner = builtin\n')
+        self.call('ask', '-n', '1')
+
+    @needs_gitleaks
+    def test_gitleaks_redacts_a_dispatched_session_log(self):
+        log = self.root / 'session.log'
+        log.write_text(f'posting to {self.HOOK} now\n')
+        out = subprocess.run([sys.executable, str(ROOT / 'lib/secret_scan.py'), 'redact', str(log)],
+                             env=self.env, capture_output=True, text=True)
+        self.assertEqual(out.stdout.strip(), '1')
+        self.assertIn('[REDACTED gitleaks: slack-webhook-url]', log.read_text())
+
+    def test_a_required_scanner_that_is_missing_stops_the_request(self):
+        self.env['PATH'] = os.pathsep.join(p for p in self.env['PATH'].split(os.pathsep)
+                                           if not (Path(p) / 'gitleaks').exists())
+        self.configure(extra_config='secret_scanner = gitleaks\n')
+        refused = self.call('ask', '-n', '1', good=False)
+        self.assertIn('gitleaks is not on PATH', refused.stderr)
+        self.assertIn('could not run', refused.stderr)
+        self.assertFalse(list(self.it.glob('CROSSCHECK_*')))
 
     def test_a_milder_second_review_does_not_answer_an_unsound_one(self):
         self.configure("print('VERDICT: UNSOUND')")

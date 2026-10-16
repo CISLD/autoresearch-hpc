@@ -39,7 +39,7 @@ from harness import claimed_terms, cli_version, digest
 import lease
 import locks
 from project import config
-from secret_scan import PATTERNS
+from secret_scan import findings as secret_findings, redact_file
 
 OUTCOMES = ('concluded', 'unconcluded', 'blocked')
 
@@ -106,7 +106,7 @@ def start(n, brief, harness, detach, dry):
         sys.exit(f"arh: no command configured for the iteration controller '{harness}' (harnesses.md)")
     if not Path(brief).is_file():
         sys.exit(f'arh: brief not found: {brief}')
-    leaked = [f'{kind}' for kind, pattern in PATTERNS if pattern.search(Path(brief).read_text(errors='replace'))]
+    leaked = sorted({kind for _, kind, _ in secret_findings(brief)})
     if leaked:
         sys.exit(f"arh: the brief carries what looks like a credential ({', '.join(leaked)}); nothing was sent")
     text = prompt(n, brief)
@@ -162,18 +162,8 @@ def start(n, brief, harness, detach, dry):
 
 
 def redact(path):
-    """Replace credential-shaped text in PATH; return how many were removed."""
-    try:
-        text = Path(path).read_text(errors='replace')
-    except OSError:
-        return 0
-    count = 0
-    for kind, pattern in PATTERNS:
-        text, k = pattern.subn(f'[REDACTED {kind}]', text)
-        count += k
-    if count:
-        Path(path).write_text(text)
-    return count
+    """Replace credential-shaped text in PATH (built-in patterns and, when installed, gitleaks)."""
+    return redact_file(path)
 
 
 def supervise(n, seq):

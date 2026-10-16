@@ -65,8 +65,10 @@ arh_load_project() {
   ARH_REGISTRY="$ARH_STATE/registry.tsv"
   # Which environment variables carry the harness's own session id (harnesses.md session_env).
   ARH_SESSION_ENV=$(arh_config_get "$ARH_HARN" session_env "")
+  # auto: gitleaks's maintained rules on top of the built-in patterns when gitleaks is installed.
+  ARH_SECRET_SCANNER=$(arh_config_get "$ARH_HARN" secret_scanner auto)
   export ARH_ROOT ARH_STATE ARH_CONF ARH_SITE ARH_PROJ ARH_HARN ARH_GENS ARH_ITERS ARH_VERIFY ARH_LEDGER ARH_REGISTRY \
-    ARH_SESSION_ENV
+    ARH_SESSION_ENV ARH_SECRET_SCANNER
 }
 
 arh_now()   { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -217,7 +219,8 @@ arh_secret_scan() {
   local note="$1" tmp="" rc=0 hits; shift
   [ "$(arh_config_get "$ARH_HARN" secret_scan on)" != off ] || return 0
   if [ -n "$note" ]; then tmp=$(mktemp); printf '%s\n' "$note" > "$tmp"; set -- "$@" "$tmp"; fi
-  hits=$(python3 "$ARH_HOME/lib/secret_scan.py" scan "$@") || rc=1
+  hits=$(python3 "$ARH_HOME/lib/secret_scan.py" scan "$@") || rc=$?
+  [ "$rc" != 2 ] || { [ -z "$tmp" ] || rm -f "$tmp"; arh_die "the secret scanner could not run (above); nothing was sent"; }
   [ "$rc" = 0 ] || printf '%s\n' "${hits//"$tmp"/--note}" >&2
   [ -z "$tmp" ] || rm -f "$tmp"
   return "$rc"
