@@ -166,9 +166,10 @@ Failed attempts, nulls, killed controls and superseded conclusions stay visible.
 | **[Replicate](skills/replicate/SKILL.md)** | Reimplement from a frozen specification, blind to the original code | `arh dag ...` · `arh replicate ...` |
 | **[Ledger](skills/ledger/SKILL.md)** | Maintain and check the authoritative research record | `arh ledger render/check` |
 | **[Evoke](skills/evoke/SKILL.md)** | Select and invoke a configured specialist generator as an advisory proposal engine | `arh evoke ...` |
+| **[Dispatch](skills/dispatch/SKILL.md)** | Act as main controller: give each iteration its own controller session, read their hand-backs | `arh dispatch ...` (with `orchestration = per-iteration`) |
 | **[Ponytail](skills/ponytail/SKILL.md)** | Coding, debugging, refactoring and dependency choices | coding guidance; not a protocol gate |
 
-`harness/install.sh` copies all eight into a project. For **Claude Code** they land in `.claude/skills/` and appear as `/iterate`, `/cross-check`, `/verify`, `/arms`, `/replicate`, `/ledger`, `/evoke` and `/ponytail`; Codex and OpenCode read the same contract through their adapters. The portable source of truth remains `skills/` and `AGENTS.md`.
+`harness/install.sh` copies all nine into a project. For **Claude Code** they land in `.claude/skills/` and appear as `/iterate`, `/cross-check`, `/verify`, `/arms`, `/replicate`, `/ledger`, `/evoke`, `/dispatch` and `/ponytail`; Codex and OpenCode read the same contract through their adapters. The portable source of truth remains `skills/` and `AGENTS.md`.
 
 The separation matters: an agent may choose to *use the Iterate skill*, but it is `arh gate predeclare` that refuses a late or altered pre-declaration.
 
@@ -187,6 +188,11 @@ arh freeze -n N PATH...     # freeze a confirmation's decisions; only then may i
 arh doctor --smoke [gpu]    # one real task through the scheduler and image: what can it see?
 arh inputs check            # are the declared CRAM/BAM/VCF inputs whole?
 arh submit WF.nf --detach   # a run that outlives the session; arh status --running follows it
+arh claim -t ... --continues N   # another attempt at N's question; the ledger counts attempts
+arh ask --rebuttal -n N     # put a rebuttal of an UNSOUND verdict to the reviewer
+arh dispatch -n N --brief F # per-iteration controllers: iteration N gets its own agent session
+arh sessions -n N           # the agent sessions behind an iteration, and Entire checkpoints
+arh memory add -n N TEXT    # carry a concluded iteration's finding into later work
 ```
 
 Held-out data can be declared as `sealed_inputs`. Until an iteration freezes the artefacts its confirmation applies (model, thresholds, decision rules, scripts), its runs see empty mounts in place of the sealed paths, and a workflow that names one is refused. Every read after the freeze is logged, so how many times the held-out data were used is part of the record.
