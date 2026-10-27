@@ -1635,11 +1635,14 @@ elif args[0] == 'list':
 
     def test_doctor_names_missing_knowledge_and_bare_gotchas(self):
         gotchas = self.root / 'GOTCHAS.md'
-        gotchas.write_text(gotchas.read_text() + '\n## a mode with no check\n**Symptom:** looks fine\n')
+        gotchas.write_text(gotchas.read_text() + '\n## a mode with no check\n**Symptom:** looks fine\n'
+                           '\n## G18 panel\nThe panel check now requires `unphased_gt == 0`.\n'
+                           '\n## G17 load\nThe load test asserts its sha256 is unchanged.\n')
         (self.root / 'DIRECTIVES.md').unlink()
         err = self.call('doctor', good=None).stderr
         self.assertIn('DIRECTIVES.md is missing', err)
-        self.assertIn('without an assertion (a failure mode nobody can detect recurs): a mode with no check', err)
+        self.assertIn('1 GOTCHAS.md entr(ies) state no check', err)                # #53: G17 and G18 state theirs
+        self.assertIn('         a mode with no check', err)
         self.call('migrate', str(self.root), '--apply')
         self.assertTrue((self.root / 'DIRECTIVES.md').is_file())
         self.assertIn('a mode with no check', gotchas.read_text())          # an existing file is never replaced
@@ -2040,6 +2043,29 @@ elif args[0] == 'list':
         self.assertRegex(readme.read_text(), r'Status: PRE-DECLARED \d{4}-\d{2}-\d{2} \(frozen by arh gate predeclare\)')
         self.assertEqual((self.root / 'iterations/iteration2/PREDECLARATION.sha256').read_text().split()[0],
                          hashlib.sha256(readme.read_bytes()).hexdigest())
+
+    def test_a_same_family_check_does_not_make_the_foreign_review_a_further_one(self):
+        # The recorded same-family check made the required foreign review need --note (field feedback #83).
+        self.configure(family='openai')
+        self.call('ask', '-n', '1', '--same-family')
+        self.configure()
+        self.ask(); self.gate()
+
+    def test_a_verification_has_notes_a_lease_and_can_be_waited_on(self):
+        # note, lease and wait took only iteration numbers (field feedback #56, #59, #67).
+        d = self.verification()
+        self.assertTrue((d / 'metadata/lease.json').is_file())
+        self.call('note', '-n', 'recount', '--job', '42', 'smoke job on all')
+        self.assertIn('recount', self.call('note', 'list', '-n', 'recount').stdout)
+        self.assertIn('job 42', self.call('note', 'list').stdout)
+        env, self.env = self.env, dict(self.env, ARH_AGENT='other-agent', ARH_SESSION='s2')
+        try:
+            self.assertIn('verification recount is now held by other-agent',
+                          self.call('lease', 'take', '-n', 'recount', '--reason', 'the owner hit its usage limit').stdout)
+        finally:
+            self.env = env
+        self.assertIn('idle', self.call('wait', '-n', 'recount', '--timeout', '5').stdout)
+        self.call('note', '-n', '../x', 'escape', good=False)
 
     def test_inputs_check_reads_end_markers_and_caches_passes(self):
         # A truncated CRAM (no end-of-file container) made a caller drop chr11-22 silently (2026-10-04).

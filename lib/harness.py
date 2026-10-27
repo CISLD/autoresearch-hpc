@@ -195,8 +195,12 @@ def budget():
     if dry == '1':
         return
     # Provider refusals are not review rounds: counting them let one quota error spend half of
-    # an iteration's two-round budget without any model having read the work.
-    attempts = len([p for p in Path(directory).glob('CROSSCHECK_*.md') if not provider_error(p)])
+    # an iteration's two-round budget without any model having read the work. Nor is a same-family
+    # check taken with --same-family, which cannot satisfy the gate: it made the first foreign-family
+    # review a "further review" that needed --note (field feedback #83).
+    attempts = len([p for p in Path(directory).glob('CROSSCHECK_*.md')
+                    if not provider_error(p) and not (record_field(p, 'same_family_override')
+                                                      and record_field(p, 'require_foreign_family'))])
     if attempts >= int(max_rounds):
         sys.exit('review round budget exhausted; leave unresolved work recorded or deliberately revise the budget')
     if attempts and not note.strip():

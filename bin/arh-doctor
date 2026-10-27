@@ -229,12 +229,20 @@ if [ -f "$ARH_ROOT/GOTCHAS.md" ]; then
   bare=$(python3 - "$ARH_ROOT/GOTCHAS.md" <<'PY'
 import re, sys
 text = open(sys.argv[1]).read()
+# An entry states its check in an **Assertion:** field, or in words such as "asserts" or "requires": the
+# bare word "assertion" flagged 27 of one study's 37 entries that did state theirs (field feedback #53).
+check = re.compile(r'\*\*assertion:?\*\*|\bassert(s|ed|ion)?\b|\brequires?\b.*(==|!=|<=|>=|<|>|\bequal|\bzero\b)|'
+                   r'\b(check|test)s? (that|now)\b', re.I)
 for name, body in re.findall(r'^## (.+?)\n(.*?)(?=^## |\Z)', text, re.M | re.S):
-    if not name.lower().startswith(('example', '<')) and 'assertion' not in body.lower():
+    if not name.lower().startswith(('example', '<')) and not check.search(body):
         print(name.strip()[:60])
 PY
 )
-  [ -z "$bare" ] || arh_warn "GOTCHAS.md entries without an assertion (a failure mode nobody can detect recurs): $(printf '%s' "$bare" | paste -sd';' -)"
+  if [ -n "$bare" ]; then
+    arh_warn "$(printf '%s\n' "$bare" | grep -c .) GOTCHAS.md entr(ies) state no check (a failure mode nobody can detect recurs); give each an **Assertion:** line:"
+    printf '%s\n' "$bare" | head -10 | sed 's/^/         /' >&2
+    [ "$(printf '%s\n' "$bare" | grep -c .)" -le 10 ] || printf '         … and %s more\n' "$(( $(printf '%s\n' "$bare" | grep -c .) - 10 ))" >&2
+  fi
 fi
 site_gotchas=$(arh_config_get "$ARH_SITE" site_gotchas "")
 if [ -n "$site_gotchas" ]; then

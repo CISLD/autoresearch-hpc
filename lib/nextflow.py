@@ -105,7 +105,7 @@ def detach(lock, logs, owner_dir, kind):
     if child.poll() is not None and child.returncode:
         print(log.read_text()[-3000:], file=sys.stderr)
         return child.returncode
-    follow = (f'arh wait -n {owner_dir.name[9:]}' if kind == 'iteration' else 'arh status --running')
+    follow = f'arh wait -n {owner_dir.name[9:] if kind == "iteration" else owner_dir.name}'
     print(log)
     print(f'arh: detached as pid {child.pid}; follow it with `{follow}` or `arh status --running`; '
           f'its output, and the attempt directory when it ends, are in {log}', file=sys.stderr)
@@ -276,9 +276,9 @@ def run():
     engine.mkdir(parents=True, exist_ok=True)
     logs.mkdir(parents=True, exist_ok=True)
     lock = engine / '.launch-lock'
-    if kind == 'iteration' and not os.environ.get('ARH_DETACHED'):    # a detached child's caller did it
+    if kind in ('iteration', 'verification') and not os.environ.get('ARH_DETACHED'):   # a detached child's caller did it
         try:
-            lease.touch(iteration, 'arh submit ' + name, dict(agent=os.environ.get('ARH_LEASE_AGENT', '?'),
+            lease.touch(iteration, ('arh submit ' if kind == 'iteration' else 'arh verify run ') + name, dict(agent=os.environ.get('ARH_LEASE_AGENT', '?'),
                                                              user=os.environ.get('USER', 'unknown'),
                                                              host=os.uname().nodename,
                                                              session=os.environ.get('ARH_SESSION') or None))

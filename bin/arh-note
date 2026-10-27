@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Record work that ran outside `arh submit`, so the record says it exists and has no receipt.
 #
-#   arh note -n N [--job ID[,ID...]] TEXT    append a note to iterationN/metadata/notes.jsonl
+#   arh note -n N|OBJECT [--job ID[,ID...]] TEXT   append a note to iterationN/metadata/notes.jsonl
+#                                    (or verification/OBJECT/metadata/notes.jsonl)
 #   arh note list [-n N]             show the notes, newest last
 #
 # GPU arms run by sbatch, a recount on a login node, a job chain a session started before it hit a
@@ -12,7 +13,7 @@ set -euo pipefail
 # shellcheck source=lib/common.sh
 . "${ARH_HOME:?}/lib/common.sh"
 
-usage() { sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; }
 sub=add
 case "${1-}" in
   -h|--help|"") usage; exit 0 ;;
@@ -28,15 +29,16 @@ while [ $# -gt 0 ]; do
   esac
 done
 arh_load_project
-case "$n" in *[!0-9]*) arh_die "iteration must be numeric" ;; esac
+
 
 if [ "$sub" = list ]; then
-  exec python3 - "$ARH_ITERS" "$n" <<'PY'
+  exec python3 - "$ARH_ITERS" "$n" "$ARH_VERIFY" <<'PY'
 import json, sys
 from pathlib import Path
-base, n = Path(sys.argv[1]), sys.argv[2]
-dirs = [base / f'iteration{n}'] if n else sorted((p for p in base.glob('iteration*') if p.name[9:].isdigit()),
-                                                 key=lambda p: int(p.name[9:]))
+base, n, verify = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
+dirs = ([base / f'iteration{n}'] if n.isdigit() else [verify / n]) if n else sorted(
+    (p for p in base.glob('iteration*') if p.name[9:].isdigit()), key=lambda p: int(p.name[9:])) + sorted(
+    p for p in verify.glob('*') if (p / 'PREDECLARATION.md').is_file())
 shown = 0
 for d in dirs:
     notes = d / 'metadata/notes.jsonl'
@@ -47,15 +49,16 @@ for d in dirs:
             continue
         shown += 1
         job = f" job {note['job']}" if note.get('job') else ''
-        print(f"{d.name[9:]:<5} {note.get('time', '?')}  {note.get('agent', '?')}{job}: {note.get('text', '')}")
+        label = d.name[9:] if d.name.startswith('iteration') else d.name
+        print(f"{label:<5} {note.get('time', '?')}  {note.get('agent', '?')}{job}: {note.get('text', '')}")
 if not shown:
     print('(no notes — arh note -n N TEXT records work that ran outside arh submit)')
 PY
 fi
 
-[ -n "$n" ] || arh_die "which iteration? arh note -n N [--job ID] TEXT"
-dir="$ARH_ITERS/iteration$n"
-[ -f "$dir/CLAIM.json" ] || arh_die "no claimed iteration $n"
+[ -n "$n" ] || arh_die "which iteration? arh note -n N|VERIFICATION [--job ID] TEXT"
+dir=$(arh_owner_dir "$n") || arh_die "no claimed iteration or verification '$n'"
+[ -f "$dir/CLAIM.json" ] || [ -f "$dir/PREDECLARATION.md" ] || arh_die "no claimed iteration $n"
 [ ${#text[@]} -gt 0 ] || arh_die "say what ran and where its output is: arh note -n $n --job 967736 'LAYA folds by sbatch array; logs in logs/laya/'"
 # Several jobs submitted together are one note per job (field feedback #58), so each is followed.
 case "$job" in *[!A-Za-z0-9_.:+,-]*|,*|*,|*,,*) arh_die "--job takes a scheduler job id, or several separated by commas" ;; esac

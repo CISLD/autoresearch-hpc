@@ -77,8 +77,11 @@ def release(lock):
 def running(iterations, number=None):
     """Submission and review locks under the given iteration(s): [(label, lock path)]."""
     root = Path(iterations)
-    dirs = [root / f'iteration{number}'] if number else sorted(
-        (p for p in root.glob('iteration*') if p.name[9:].isdigit()), key=lambda p: int(p.name[9:]))
+    if number and not str(number).isdigit():        # a verification object's directory
+        dirs = [Path(number)]
+    else:
+        dirs = [root / f'iteration{number}'] if number else sorted(
+            (p for p in root.glob('iteration*') if p.name[9:].isdigit()), key=lambda p: int(p.name[9:]))
     found = []
     for d in dirs:
         found += [(f'{d.name}: submission {p.parent.name}', p) for p in sorted(d.glob('metadata/nextflow/*/.launch-lock'))]
@@ -129,6 +132,7 @@ if __name__ == '__main__':
             if lock.is_dir() and state(lock) != 'stale':
                 print(label)
     elif cmd == 'wait':                         # wait ITERATIONS N TIMEOUT INTERVAL
-        sys.exit(wait(sys.argv[2], int(sys.argv[3] or 0), float(sys.argv[4]), float(sys.argv[5])))
+        target = sys.argv[3]
+        sys.exit(wait(sys.argv[2], int(target) if target.isdigit() else (target or 0), float(sys.argv[4]), float(sys.argv[5])))
     else:
         sys.exit(f'unknown command: {cmd}')

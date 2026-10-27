@@ -84,6 +84,17 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   hashing it, so a half-written plan no longer reads as pre-declared with its claim date (#80).
   A scripts/ directory passed to a workflow as a parameter is still hashed whole, but only files
   the workflow names by file name are listed as undeclared imports (#64, #72, #81).
+- **Verifications have notes, a lease and a wait.** `arh note`, `arh lease` and `arh wait` took
+  only iteration numbers, so a verification could not record out-of-band work, a takeover or a
+  wait on a detached run (#56, #59, #67). `-n` now also takes a verification object's name;
+  `arh verify gate`, `run` and `conclude` touch its lease.
+- **A same-family check is not a review round.** A recorded `--same-family` check, which cannot
+  satisfy the gate, made the first foreign-family review a "further review" that needed `--note`
+  (#83).
+- **`arh doctor` reads a stated check as one.** It flagged every `GOTCHAS.md` entry without the
+  word "assertion" (27 of one study's 37, most of which stated their check). An `**Assertion:**`
+  line or wording such as "asserts" or "requires x == 0" now counts, and the entries without one
+  are listed one per line (#53).
 - **The report-number check reads summaries first.** It read `results/` in path order and spent
   its 64 MB on per-sample tables before the summary holding every reported number (#70). Files
   named by `report_numbers_files` (`project.md`) come first, then files the report names, then the

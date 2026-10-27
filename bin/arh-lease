@@ -21,9 +21,9 @@ while [ $# -gt 0 ]; do
   esac
 done
 arh_load_project
-case "$n" in ""|*[!0-9]*) arh_die "which iteration? arh lease $sub -n N" ;; esac
-dir="$ARH_ITERS/iteration$n"
-[ -f "$dir/CLAIM.json" ] || arh_die "no claimed iteration $n"
+[ -n "$n" ] || arh_die "which iteration? arh lease $sub -n N|VERIFICATION"
+dir=$(arh_owner_dir "$n") || arh_die "no claimed iteration or verification '$n'"
+[ -f "$dir/CLAIM.json" ] || [ -f "$dir/PREDECLARATION.md" ] || arh_die "no claimed iteration $n"
 case "$sub" in
   show) exec python3 "$ARH_HOME/lib/lease.py" show "$dir" ;;
   take)

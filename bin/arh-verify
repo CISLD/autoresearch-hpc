@@ -77,6 +77,7 @@ case "$sub" in
     pre="$dir/PREDECLARATION.md"
     [ -f "$pre" ] || arh_die "no pre-declaration at ${pre#"$ARH_ROOT"/}"
     printf 'gate: verification pre-declaration, %s\n' "$obj"
+    arh_lease_touch "$dir" "arh verify gate"      # verifications have holders too (field feedback #59)
     fails=0
 
     if [ -n "$(find "$dir/results" -type f 2>/dev/null | head -1)" ]; then
@@ -123,6 +124,7 @@ case "$sub" in
     [ -f "$dir/PREDECLARATION.md" ] || arh_die "no verification '$obj'"
     [ ! -e "$dir/CONCLUDED.json" ] || arh_die "already concluded; a further check is a new verification"
     arh_guard_path "$dir/CONCLUDED.json"
+    arh_lease_touch "$dir" "arh verify conclude"
     exec python3 "$ARH_HOME/lib/verification.py" conclude "$ARH_ROOT" "$dir" "$of" "$without" "$(arh_agent_name)" \
       "$ARH_HOME/templates/verification/RESULT.md"
     ;;

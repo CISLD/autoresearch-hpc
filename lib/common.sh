@@ -235,10 +235,21 @@ arh_secret_scan() {
   return "$rc"
 }
 
+# arh_owner_dir N|OBJECT: the iteration directory for a number, or the verification directory for a
+# verification object's name. note, lease and wait worked on iterations only, so a verification could
+# record no out-of-band work, no takeover and no wait (field feedback #56, #59, #67).
+arh_owner_dir() {
+  case "$1" in
+    "") return 1 ;;
+    *[!0-9]*) [ -f "$ARH_VERIFY/$1/PREDECLARATION.md" ] && case "$1" in */*|..*) return 1 ;; *) printf '%s' "$ARH_VERIFY/$1" ;; esac ;;
+    *) printf '%s' "$ARH_ITERS/iteration$1" ;;
+  esac
+}
+
 # arh_lease_touch DIR COMMAND: record that COMMAND acted on the iteration in DIR, warning when another
 # session holds it. Never fails the command that calls it.
 arh_lease_touch() {
-  [ -f "$1/CLAIM.json" ] || return 0
+  [ -f "$1/CLAIM.json" ] || [ -f "$1/PREDECLARATION.md" ] || return 0
   local rc=0
   python3 "$ARH_HOME/lib/lease.py" touch "$1" "$2" "$(arh_agent_name)" "${USER:-unknown}" "$(uname -n)" \
     "${ARH_SESSION:-}" || rc=$?

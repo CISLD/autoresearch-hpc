@@ -71,6 +71,12 @@ def same(a, b):
     return all(a.get(k) == b.get(k) for k in keys)
 
 
+def owner_label(directory):
+    """('iteration', '7') or ('verification', 'recount'): what -n takes for this directory."""
+    d = Path(directory)
+    return ('iteration', d.name[9:]) if d.name.startswith('iteration') and d.name[9:].isdigit() else ('verification', d.name)
+
+
 def path(directory):
     return Path(directory) / 'metadata/lease.json'
 
@@ -100,13 +106,14 @@ def touch(directory, command, who):
     lease = load(directory)
     if lease is None:
         lease = dict(holder=who, since=now())
-        if not who.get('session'):
+        if not who.get('session') and owner_label(directory)[0] == 'iteration':
             shared_session_warning(directory, who)
     elif not same(lease['holder'], who):
         last = lease.get('last', {})
-        print(f"arh: iteration {Path(directory).name[9:]} is held by {name(lease['holder'])}, last active "
+        kind, n = owner_label(directory)
+        print(f"arh: {kind} {n} is held by {name(lease['holder'])}, last active "
               f"{ago(age(last.get('time')))} ({last.get('command', '?')}). If that session has ended and you are "
-              f"taking the iteration over, run: arh lease take -n {Path(directory).name[9:]} --reason TEXT",
+              f"taking the {kind} over, run: arh lease take -n {n} --reason TEXT",
               file=sys.stderr)
     lease['last'] = dict(time=now(), command=command, **{k: who[k] for k in ('agent', 'host')})
     save(directory, lease)
@@ -233,7 +240,7 @@ def take(directory, reason, who):
                                       changed_under_previous=[rel for _, rel in drafts])) + '\n')
     save(directory, dict(holder=who, since=now(), last=dict(time=now(), command='arh lease take',
                                                              agent=who['agent'], host=who['host'])))
-    print(f"iteration {Path(directory).name[9:]} is now held by {name(who)}"
+    print("{} {} is now held by ".format(*owner_label(directory)) + name(who)
           + (f"; it was held by {name(lease['holder'])}" if lease.get('holder') else ''))
     if drafts:
         print(f"files changed since {name(lease['holder'])} took it ({lease.get('since')}), newest first; "

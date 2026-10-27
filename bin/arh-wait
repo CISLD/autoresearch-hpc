@@ -20,8 +20,11 @@ Exit 0 when none is; 124 after --timeout (default 21600, 0 = no limit). Polls ev
     *) arh_die "unexpected argument: $1" ;;
   esac
 done
-case "$n" in *[!0-9]*) arh_die "iteration must be numeric" ;; esac
+
 case "$timeout:$interval" in *[!0-9.:]*|:*|*:) arh_die "--timeout and --interval take a number of seconds" ;; esac
 arh_load_project
-[ -z "$n" ] || [ -d "$ARH_ITERS/iteration$n" ] || arh_die "no iteration $n"
+if [ -n "$n" ]; then
+  owner=$(arh_owner_dir "$n") && [ -d "$owner" ] || arh_die "no iteration or verification '$n'"
+  case "$n" in *[!0-9]*) n=$owner ;; esac     # locks.py takes a verification by its directory
+fi
 exec python3 "$ARH_HOME/lib/locks.py" wait "$ARH_ITERS" "$n" "$timeout" "$interval"
