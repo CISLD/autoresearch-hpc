@@ -23,6 +23,15 @@ never reads them, and `arh guard` refuses writes to them. Do not put an
 immutable input inside a sealed one; a sealed path inside a broader immutable
 input is covered as well.
 
+Two held-out sets that must stay apart are two groups: `sealed_inputs` is the
+group `default`, and `sealed_inputs_<group> = PATH ...` declares another
+(`sealed_inputs_hg002`, `sealed_inputs_gate`). A freeze releases only the groups
+it names (`arh freeze -n N --unseal gate ...`), and every other sealed path stays
+covered. Either key with `_file` names a file listing one path per line (`#`
+comments allowed), e.g. `sealed_inputs_hg002_file = config/hg002-truth.txt`.
+Reads that happened before a path was sealed are recorded by the operator with
+`arh freeze preseal -n N --reason TEXT [PATH...]` and listed apart.
+
 ## Standing rules
 
 `rules` names files under `rules/` that every iteration inherits. Each rule is a

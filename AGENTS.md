@@ -101,6 +101,9 @@ if any frozen file has changed. Every read is appended to `.arh/unseals.tsv` and
 shown by `arh freeze list`, so how often the held-out data were used is on
 record. Without a valid freeze the sealed paths are covered by empty mounts, and
 a workflow, params file or script that names one is refused before it runs.
+When the project declares several sealed groups (`sealed_inputs_<group>`), name
+the one the confirmation may read: `arh freeze -n N --unseal GROUP ...`; the
+other groups stay covered.
 
 ## Writing a workflow for `arh submit`
 

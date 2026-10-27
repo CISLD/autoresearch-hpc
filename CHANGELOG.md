@@ -63,6 +63,13 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   which a killed migrate used to lose (#55); the checks print what runs and how long it took (#44),
   and `--no-checks` skips them. Installed harness configurations (Claude Code, OpenCode) get their
   declared-input access, sealed-input denials and web policy refreshed (#48).
+- **Sealed inputs come in groups, a freeze releases only the ones it names.** One valid freeze
+  bound every sealed path, so a frozen iteration meant for one held-out set could read another
+  (#78). `sealed_inputs_<group>` declares a group beside `sealed_inputs` (`default`), `arh freeze
+  --unseal GROUP` names the groups a confirmation may read (required when there are several), and
+  the rest stay covered by empty mounts. `sealed_inputs_file` and `sealed_inputs_<group>_file`
+  name a file with one path per line (#46). `arh freeze preseal -n N --reason TEXT` records reads
+  that happened before a path was sealed; `arh freeze list` and `arh doctor` show them apart (#45).
 - **The report-number check reads summaries first.** It read `results/` in path order and spent
   its 64 MB on per-sample tables before the summary holding every reported number (#70). Files
   named by `report_numbers_files` (`project.md`) come first, then files the report names, then the

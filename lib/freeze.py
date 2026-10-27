@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
 from project import config
@@ -38,13 +39,53 @@ def within(path, base):
     return path == base or base in path.parents
 
 
-def sealed_inputs(root):
-    """Declared sealed paths, absolute and resolved, in declaration order."""
+def sealed_groups(root):
+    """{group: [paths]} of the declared sealed inputs, absolute and resolved, in declaration order.
+
+    `sealed_inputs` is the group `default`; `sealed_inputs_<group>` declares another, so two held-out
+    sets can be released separately: one freeze unsealed every sealed path at once, and a second
+    held-out set could not be kept from the first set's confirmation (field feedback #78). Either key
+    with the suffix `_file` names a file listing one path per line, for lists too long for one line
+    (27 paths, #46)."""
     root = Path(root)
+    values = config(root / '.arh/config/project.md')
+    groups = {}
+    for key, value in values.items():
+        match = re.fullmatch(r'sealed_inputs(?:_(\w+?))?(_file)?', key)
+        if not match or not value:
+            continue
+        group = match.group(1) or 'default'
+        if match.group(2):
+            listed = Path(value) if Path(value).is_absolute() else root / value
+            items = [line.split('#', 1)[0].strip() for line in listed.read_text().splitlines()] if listed.is_file() else []
+        else:
+            items = value.split()
+        for item in filter(None, items):
+            path = Path(item)
+            groups.setdefault(group, []).append(Path(os.path.realpath(path if path.is_absolute() else root / path)))
+    return groups
+
+
+def sealed_inputs(root):
+    """Every declared sealed path, absolute and resolved, in declaration order."""
     out = []
-    for item in config(root / '.arh/config/project.md').get('sealed_inputs', '').split():
-        path = Path(item)
-        out.append(Path(os.path.realpath(path if path.is_absolute() else root / path)))
+    for paths in sealed_groups(root).values():
+        out += [p for p in paths if p not in out]
+    return out
+
+
+def unsealed(root, directory):
+    """The sealed paths a run of DIRECTORY may read: those of the groups its valid freeze names."""
+    if state(root, directory)[0] != 'valid':
+        return []
+    try:
+        named = json.loads((Path(directory) / 'FREEZE.json').read_text()).get('unseals')
+    except (OSError, ValueError):
+        return []
+    groups = sealed_groups(root)
+    out = []
+    for group in (groups if named is None else named):     # freezes before groups unsealed everything
+        out += [p for p in groups.get(group, []) if p not in out]
     return out
 
 
@@ -75,7 +116,7 @@ def state(root, directory):
     return ('changed' if changed else 'valid'), sha(record), changed
 
 
-def create(root, directory, agent, paths):
+def create(root, directory, agent, paths, unseal=None):
     root, directory = Path(root).resolve(), Path(directory).resolve()
     readme, frozen = directory / 'README.md', directory / 'PREDECLARATION.sha256'
     if not frozen.is_file() or frozen.read_text().splitlines()[0] != sha(readme):
@@ -85,6 +126,15 @@ def create(root, directory, agent, paths):
         sys.exit(f'arh: {record.relative_to(root)} already exists; a freeze is written once. '
                  'A different configuration is a new iteration.')
     sealed = sealed_inputs(root)
+    groups = sealed_groups(root)
+    if unseal is None:
+        if len(groups) > 1:
+            sys.exit('arh: several sealed groups are declared (' + ', '.join(groups) + '); name the one(s) this '
+                     'confirmation may read with --unseal GROUP[,GROUP]')
+        unseal = list(groups)
+    unknown = [g for g in unseal if g not in groups]
+    if unknown:
+        sys.exit('arh: no sealed group ' + ', '.join(unknown) + ' (declared: ' + (', '.join(groups) or 'none') + ')')
     files = {}
     for given in paths:
         path = Path(os.path.realpath(given))
@@ -101,15 +151,16 @@ def create(root, directory, agent, paths):
     data = dict(schema='arh-freeze-v1', iteration=int(directory.name[9:]) if directory.name[9:].isdigit() else None,
                 frozen=datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), agent=agent,
                 predeclaration_sha256=sha(readme), files=files,
-                sealed_inputs=[str(s) for s in sealed])
+                sealed_inputs=[str(s) for s in sealed], unseals=unseal)
     with open(record, 'x') as handle:          # write-once, even against a concurrent freeze
         json.dump(data, handle, indent=2)
         handle.write('\n')
     print(f'froze {len(files)} file(s) in {record.relative_to(root)} ({sha(record)[:12]})')
     for rel in files:
         print(f'  {files[rel][:12]}  {rel}')
-    if sealed:
-        print('A run of this iteration may now read the sealed inputs; each read is recorded in .arh/unseals.tsv.')
+    if unseal:
+        print('A run of this iteration may now read the sealed group(s) ' + ', '.join(unseal)
+              + '; each read is recorded in .arh/unseals.tsv.')
 
 
 def unseals(root):
@@ -137,19 +188,56 @@ def listing(root, iterations):
               f"{'frozen' if st == 'valid' else 'CHANGED: ' + ', '.join(changed[:3])}")
     if not shown:
         print('(no freezes yet — arh freeze -n N FILE...)')
-    sealed = sealed_inputs(root)
-    if sealed:
+    groups = sealed_groups(root)
+    if groups:
         print('\nsealed inputs:')
         rows = unseals(root)
-        for s in sealed:
-            reads = sorted({r[1] for r in rows if r[4] == str(s)}, key=int)
-            print(f"  {s}  — " + (f"read by iteration(s) {', '.join(reads)}" if reads else 'never read'))
+        for group, paths in groups.items():
+            for s in paths:
+                print(f"  {s}{'' if len(groups) == 1 else f' [{group}]'}  — {reads_text(rows, s)}")
 
 
-def references(root, files):
-    """[(file, sealed path)] for each sealed input a file names, as declared or as resolved."""
+def reads_text(rows, path):
+    """'read by iteration(s) 34, 55; before the seal by 9, 27' or 'never read'."""
+    rows = [r for r in rows if r[4] == str(path)]
+    after = sorted({r[1] for r in rows if r[2] != PRESEAL}, key=int)
+    before = sorted({r[1] for r in rows if r[2] == PRESEAL}, key=int)
+    parts = ([f"read by iteration(s) {', '.join(after)}"] if after else []) + (
+        [f"read before the seal by iteration(s) {', '.join(before)}"] if before else [])
+    return '; '.join(parts) or 'never read'
+
+
+PRESEAL = 'pre-seal'
+
+
+def record_preseal(root, iteration, reason, paths):
+    """Reads that happened before a path was sealed. The HG002 truth set was sealed after six
+    iterations had read it, and every listing said 'never read' (field feedback #45). The operator
+    records them; the row says when it was recorded and why."""
     sealed = sealed_inputs(root)
-    declared = config(Path(root) / '.arh/config/project.md').get('sealed_inputs', '').split()
+    chosen = [Path(os.path.realpath(p)) for p in paths] if paths else sealed
+    unknown = [str(p) for p in chosen if p not in sealed]
+    if unknown:
+        sys.exit('arh: not a sealed input: ' + ', '.join(unknown))
+    if len(reason.split()) < 3:
+        sys.exit('arh: give the reason: which read, when, and how it is known')
+    log = Path(root) / '.arh/unseals.tsv'
+    stamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    with open(log, 'a') as handle:
+        if handle.tell() == 0:
+            handle.write('time\titeration\trun\tattempt\tpath\tfreeze_sha256\n')
+        for path in chosen:
+            handle.write(f"{stamp}\t{iteration}\t{PRESEAL}\t-\t{path}\t-\t{reason.replace(chr(9), ' ')}\n")
+    print(f'recorded {len(chosen)} read(s) before the seal by iteration {iteration}')
+
+
+def references(root, files, only=None):
+    """[(file, sealed path)] for each sealed input a file names, as declared or as resolved."""
+    sealed = only if only is not None else sealed_inputs(root)
+    root = Path(root)
+    declared = [item for key, value in config(root / '.arh/config/project.md').items()
+                if re.fullmatch(r'sealed_inputs(_\w+?)?', key) for item in value.split()]
+    declared = [d for d in declared if Path(os.path.realpath(d if Path(d).is_absolute() else root / d)) in sealed]
     names = set(declared) | {str(s) for s in sealed}
     found = []
     for f in files:
@@ -172,12 +260,12 @@ def record_unseal(root, iteration, run, attempt, paths, freeze_sha):
             handle.write(f'{stamp}\t{iteration}\t{run}\t{attempt}\t{path}\t{freeze_sha}\n')
 
 
-def masks(root):
-    """(source, target) binds that cover each existing sealed path with an empty one."""
+def masks(root, only=None):
+    """(source, target) binds that cover each existing sealed path (or each of ONLY) with an empty one."""
     base = Path(root) / '.arh/sealed'
     empty_dir, empty_file = base / 'empty', base / 'empty-file'
     out = []
-    for s in sealed_inputs(root):
+    for s in (sealed_inputs(root) if only is None else only):
         if not s.exists():
             continue
         if s.is_dir():
@@ -207,15 +295,19 @@ def doctor(root):
         elif not s.exists():
             out.append(f'WARN|sealed input {s} does not exist')
         else:
-            reads = sorted({r[1] for r in unseals(root) if r[4] == str(s)}, key=int)
-            out.append(f"OK|sealed: {s} ({'read by iteration(s) ' + ', '.join(reads) if reads else 'never read'})")
+            out.append(f"OK|sealed: {s} ({reads_text(unseals(root), s)})")
     return out
 
 
 if __name__ == '__main__':
     cmd = sys.argv[1]
-    if cmd == 'create':
-        create(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:])
+    if cmd == 'create':                          # create ROOT DIR AGENT UNSEAL|- PATH...
+        create(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[6:],
+               None if sys.argv[5] == '-' else [g for g in sys.argv[5].split(',') if g])
+    elif cmd == 'preseal':                       # preseal ROOT ITERATION REASON [PATH...]
+        record_preseal(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:])
+    elif cmd == 'has-sealed':
+        sys.exit(0 if sealed_groups(sys.argv[2]) else 1)
     elif cmd == 'check':
         st, digest, changed = state(sys.argv[2], sys.argv[3])
         if st == 'none':

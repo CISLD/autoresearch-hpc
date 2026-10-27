@@ -1718,6 +1718,43 @@ elif args[0] == 'list':
         self.assertIn('read by iteration(s) 1', self.call('freeze', 'list').stdout)
 
     @needs_site
+    def test_a_freeze_unseals_only_the_groups_it_names(self):
+        # One valid freeze bound every sealed path, so a frozen gate iteration could read the HG002
+        # truth set too (field feedback #78). A 27-path list did not fit on one line (#46).
+        data, held = self.seal()
+        gate = data / 'gate'; gate.mkdir()
+        (gate / 'truth.txt').write_text('gate truth\n')
+        listing = self.root / 'gate-paths.txt'
+        listing.write_text(f'# the gate truth set\n{gate}\n')
+        self.set_config('project.md', sealed_inputs_gate_file=listing.name)
+        out = self.it / 'results/seen.txt'
+        script = self.it / 'scripts/it1_01_read.sh'
+        script.write_text(f'set -eu\nls -A "{data}/held""out" > "{out}"\nls -A "{data}/ga""te" >> "{out}"\n')
+        self.assertIn('--unseal', self.call('freeze', '-n', '1', str(script), good=False).stderr)
+        self.assertIn('no sealed group nope', self.call('freeze', '-n', '1', '--unseal', 'nope', str(script), good=False).stderr)
+        self.call('freeze', '-n', '1', '--unseal', 'gate', str(script))
+        self.call('submit', str(script), '-n', 'gate_only')
+        self.assertEqual(out.read_text(), 'truth.txt\n')        # gate visible, the default group still empty
+        record = json.loads(next((self.it / 'logs/nextflow/gate_only').glob('attempt-*/run.json')).read_text())
+        self.assertEqual(record['sealed_inputs'], {'read': [str(gate)], 'masked': [str(held)]})
+        listed = self.call('freeze', 'list').stdout
+        self.assertIn(f'{gate} [gate]  — read by iteration(s) 1', listed)
+        self.assertIn(f'{held} [default]  — never read', listed)
+        named = self.it / 'scripts/it1_02_named.sh'
+        named.write_text(f'cat {held}/truth.txt\n')
+        self.assertIn('unseals its group', self.call('submit', str(named), '-n', 'named', good=False).stderr)
+
+    def test_reads_before_the_seal_are_recorded(self):
+        # The HG002 truth was sealed after six iterations had read it, and every listing said "never read" (#45).
+        held = self.root / 'heldout'; held.mkdir()
+        self.set_config('project.md', sealed_inputs=held)
+        self.assertIn('give the reason', self.call('freeze', 'preseal', '-n', '1', '--reason', 'read', good=False).stderr)
+        self.call('freeze', 'preseal', '-n', '1', '--reason', 'iteration 1 scored against it on 2026-10-05')
+        listed = self.call('freeze', 'list').stdout
+        self.assertIn('read before the seal by iteration(s) 1', listed)
+        self.assertIn('before the seal', self.call('doctor', good=None).stdout)
+
+    @needs_site
     def test_arh_run_never_reads_a_sealed_input(self):
         data, held = self.seal()
         self.assertEqual(self.call('run', 'runtime', '--', 'ls', '-A', str(held)).stdout, '')

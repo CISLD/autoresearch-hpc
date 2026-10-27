@@ -243,7 +243,7 @@ if [ -n "$site_gotchas" ]; then
   else arh_fail "site_gotchas names $site_gotchas, which is not a readable file"; warn=$((warn+1)); fi
 fi
 
-if [ -n "$(arh_config_get "$ARH_PROJ" sealed_inputs "")" ]; then
+if arh_has_sealed; then
   printf '\nsealed inputs:\n'
   while IFS='|' read -r level msg; do
     case "$level" in

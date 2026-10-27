@@ -95,7 +95,7 @@ if [ -n "$vrows" ]; then
   printf '\nverifications (arh verify list):\n'
   printf '%s\n' "$vrows" | awk -F'\t' '{ printf "  %-28s of %-4s %-8s %s\n", $1, $2, $3, $4 }'
 fi
-if [ -n "$(arh_config_get "$ARH_PROJ" sealed_inputs "")" ] || compgen -G "$ARH_ITERS/iteration*/FREEZE.json" >/dev/null; then
+if arh_has_sealed || compgen -G "$ARH_ITERS/iteration*/FREEZE.json" >/dev/null; then
   printf '\nfreezes and sealed inputs (arh freeze list):\n'
   python3 "$ARH_HOME/lib/freeze.py" list "$ARH_ROOT" "$ARH_ITERS" | sed 's/^/  /'
 fi

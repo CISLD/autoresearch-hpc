@@ -199,16 +199,19 @@ def run():
         parser.error('files frozen in FREEZE.json changed since the freeze: ' + ', '.join(changed)
                      + '. A changed configuration is a new iteration.')
     sealed = freeze.sealed_inputs(root)
-    unsealed = bool(sealed) and frozen_state == 'valid'
-    if sealed and not unsealed and kind != 'smoke':
+    # A valid freeze releases only the sealed groups it names; every other sealed path stays hidden.
+    readable = freeze.unsealed(root, iteration) if sealed and kind != 'smoke' else []
+    hidden = [p for p in sealed if p not in readable]
+    unsealed = bool(readable)
+    if hidden and kind != 'smoke':
         scripts_dir = iteration / 'scripts'
         texts = [workflow] + ([args.params.resolve()] if args.params else []) + (
             [p for p in sorted(scripts_dir.rglob('*')) if p.is_file()] if scripts_dir.is_dir() else [])
-        named = freeze.references(root, texts)
+        named = freeze.references(root, texts, hidden)
         if named:
             parser.error('sealed input ' + named[0][1] + ' is named in ' + str(Path(named[0][0]).relative_to(root))
-                         + ': only a run of an iteration with a valid freeze may read sealed inputs '
-                         '(arh freeze -n N FILE...).')
+                         + ': only a run of an iteration whose valid freeze unseals its group may read it '
+                         '(arh freeze -n N [--unseal GROUP] FILE...).')
     name = args.name or workflow.stem
     if not name or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in name):
         parser.error('name must contain only letters, digits, underscores and hyphens')
@@ -345,12 +348,10 @@ def run():
         # staged input's directory before these options and Singularity keeps the first bind of a
         # target, so automounts are off for a run that may not read them.
         masked = []
-        if unsealed:
-            binds += [f'{p}:{p}:ro' for p in sealed]
-        else:
-            for source, target in freeze.masks(root):
-                binds.append(f'{source}:{target}:ro')
-                masked.append(str(target))
+        binds += [f'{p}:{p}:ro' for p in readable]
+        for source, target in freeze.masks(root, hidden):
+            binds.append(f'{source}:{target}:ro')
+            masked.append(str(target))
         options = ' '.join('--bind ' + shlex.quote(bind) for bind in binds)
         if task_prefix:
             options += ' --env ' + shlex.quote('PATH=' + task_prefix + '/bin:/usr/local/bin:/usr/bin:/bin')
@@ -376,7 +377,7 @@ def run():
                  f'process.maxRetries = {int(retries)}', 'tower.enabled = false', 'wave.enabled = false',
                  f'process.container = {{ {container} }}' if images else f'process.container = {literal(image)}',
                  'singularity.enabled = true',
-                 f"singularity.autoMounts = {'false' if sealed and not unsealed else 'true'}",
+                 f"singularity.autoMounts = {'false' if hidden else 'true'}",
                  f'singularity.runOptions = {literal(options)}',
                  # The default fields, plus the image each task actually ran in.
                  "trace.fields = 'task_id,hash,native_id,name,status,exit,submit,duration,realtime,"
@@ -450,11 +451,11 @@ def run():
         if frozen_state != 'none':
             record['freeze_sha256'] = freeze_sha
         if sealed:
-            record['sealed_inputs'] = dict(read=[str(p) for p in sealed] if unsealed else [], masked=masked)
+            record['sealed_inputs'] = dict(read=[str(p) for p in readable], masked=masked)
         receipt = attempt / 'run.json'
         receipt.write_text(json.dumps(record, indent=2) + '\n')
         if unsealed:
-            freeze.record_unseal(root, iteration.name[9:], name, attempt.name, sealed, freeze_sha)
+            freeze.record_unseal(root, iteration.name[9:], name, attempt.name, readable, freeze_sha)
         received = []
         with (attempt / 'console.log').open('w') as output:
             proc = subprocess.Popen(cmd, cwd=engine, env=env, stdout=output, stderr=subprocess.STDOUT)

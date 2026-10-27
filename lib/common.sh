@@ -129,7 +129,7 @@ arh_warn_agent_mismatch() {
 
 arh_guard_path() {
   local p abs immutable ip
-  immutable="$(arh_config_get "$ARH_PROJ" immutable_inputs "") $(arh_config_get "$ARH_PROJ" sealed_inputs "")"
+  immutable="$(arh_config_get "$ARH_PROJ" immutable_inputs "") $(! arh_has_sealed || python3 "$ARH_HOME/lib/freeze.py" sealed "$ARH_ROOT" | tr '\n' ' ')"
   for p in "$@"; do
     abs=$(arh_abspath "$p")
     case "$abs" in "$ARH_ROOT"/*) ;; *) arh_die "refusing write outside project root: $abs" ;; esac
@@ -208,8 +208,15 @@ arh_build_once() {
 # SOURCE:TARGET binds that cover every existing sealed input with an empty mount. `arh run` has no
 # iteration and so no freeze: it never reads a sealed input, even one inside a broader immutable input.
 arh_sealed_masks() {
-  [ -n "$(arh_config_get "$ARH_PROJ" sealed_inputs "")" ] || return 0
+  arh_has_sealed || return 0
   python3 "$ARH_HOME/lib/freeze.py" masks "$ARH_ROOT"
+}
+
+# Any sealed group declared: sealed_inputs, sealed_inputs_<group>, or either with _file.
+arh_has_sealed() {
+  [ -f "$ARH_PROJ" ] && arh_config_keys "$ARH_PROJ" | while read -r k; do
+    case "$k" in sealed_inputs|sealed_inputs_*) [ -n "$(arh_config_get "$ARH_PROJ" "$k" "")" ] && echo y ;; esac
+  done | grep -q y
 }
 
 # arh_secret_scan NOTE FILE...: succeed unless the files, or the note text, carry something shaped like

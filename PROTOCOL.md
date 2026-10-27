@@ -108,8 +108,8 @@ bind the record to the run. Complete replayable provenance is a stronger goal
 than conformance to this clause.
 
 5.8 Inputs a project declares sealed MUST NOT be readable by a run unless the
-run's iteration holds a valid freeze (§3.9). Every run that can read them MUST be
-recorded with the freeze it ran under.
+run's iteration holds a valid freeze (§3.9) that releases their group. Every run
+that can read them MUST be recorded with the freeze it ran under.
 
 5.9 Computation that produces or checks a result SHOULD run through the
 receipt-producing execution path, including GPU work, auxiliary tool images and

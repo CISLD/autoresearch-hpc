@@ -165,9 +165,8 @@ def summary(root):
     inputs were checked and which of them failed. Files checked by explicit path elsewhere are left out."""
     latest = history(root)
     log = log_path(root)
-    sealed = config(Path(root) / '.arh/config/project.md').get('sealed_inputs', '').split()
-    bases = [os.path.realpath(p) for p in declared(root)] + [
-        os.path.realpath(p if os.path.isabs(p) else os.path.join(root, p)) for p in sealed]
+    from freeze import sealed_inputs
+    bases = [os.path.realpath(p) for p in declared(root)] + [str(p) for p in sealed_inputs(root)]
     mine = {p: r for p, r in latest.items() if any(p == b or p.startswith(b.rstrip('/') + '/') for b in bases)}
     if not mine:
         return None
