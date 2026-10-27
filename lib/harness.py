@@ -9,6 +9,7 @@ import signal
 import selectors
 import subprocess
 import sys
+import tempfile
 import time
 
 from project import config as project_config, knowledge_hashes
@@ -116,15 +117,28 @@ PROVIDER_ERRORS = (
     ('limit', 75, re.compile(
         r"usage limit|session limit|rate.?limit|quota|too many requests|\b429\b|"
         r"insufficient.?(credit|balance)|try again (at|in)|overloaded", re.I)),
-    ('auth', 75, re.compile(r"\b401\b|\b403\b|unauthori[sz]ed|authentication|not logged in", re.I)),
+    # An expired or revoked key is the same as no login: OpenCode said "This API key has expired.
+    # Create a new API key in OpenCode Console" and exited 1, so the fallback was never tried
+    # (field feedback #75).
+    ('auth', 75, re.compile(
+        r"\b401\b|\b403\b|unauthori[sz]ed|authentication|not logged in|"
+        r"(api.?key|token|credential|session|login)s? (has |have |is |are )?(expired|revoked|invalid)|"
+        r"invalid (api.?key|token|credential)|create a new api.?key|(log ?in|sign ?in|re-?authenticate) again|"
+        r"please (log ?in|sign ?in|re-?authenticate)", re.I)),
 )
 RETRY_HINT = re.compile(r"\b(?:try again (?:at|in)|resets?(?: at)?) [^.\n\u00b7(]*\d[^.\n\u00b7(]*", re.I)
 
 
-def classify(text):
-    """(kind, exit code, the provider's own line, retry hint) for a provider refusal, else None."""
+def classify(text, prompt=''):
+    """(kind, exit code, the provider's own line, retry hint) for a provider refusal, else None.
+
+    Lines of the prompt are skipped: `codex exec` echoes the prompt to stderr, and a plan that
+    mentions a usage limit was quoted back as what the provider said (field feedback #76). The
+    last matching line wins, because a refusal is usually the last thing a CLI writes."""
+    echoed = {l.strip() for l in prompt.splitlines() if l.strip()}
+    lines = [l.strip() for l in text.splitlines() if l.strip() and l.strip() not in echoed]
     for kind, code, pattern in PROVIDER_ERRORS:
-        line = next((l.strip() for l in text.splitlines() if pattern.search(l)), None)
+        line = next((l for l in reversed(lines) if pattern.search(l)), None)
         if line:
             hint = RETRY_HINT.search(text)
             return kind, code, line[:300], hint.group(0).strip() if hint else None
@@ -146,16 +160,30 @@ def provider_error(path):
 def budget():
     directory, prompt, command, role, harness, pf, vf, max_input, max_rounds, note, dry = sys.argv[2:]
     size = Path(prompt).stat().st_size
-    if size > int(max_input):
-        d = Path(directory)
+    d = Path(directory)
+    # ask_max_predeclaration_bytes: the frozen pre-declaration gets a cap of its own and leaves
+    # ask_max_input_bytes to the report and the note. A 31.8 kB plan left a report three trims and
+    # a one-line note under one shared cap (field feedback #82, #89).
+    plan_cap = int(os.environ.get('ARH_ASK_MAX_PREDECLARATION') or 0)
+    plan_size = (d / 'README.md').stat().st_size if (d / 'README.md').exists() else 0
+    if plan_cap and plan_size > plan_cap:
+        sys.exit(f'the pre-declaration is {plan_size} bytes; ask_max_predeclaration_bytes is {plan_cap}')
+    counted = size - plan_size if plan_cap else size
+    if counted > int(max_input):
         body = d / ('DAG.md' if role == 'reimplementer' else 'results/report/' + d.name + '_report.md')
         parts = [(name, p.stat().st_size) for name, p in (('pre-declaration', d / 'README.md'), (body.stem, body))
                  if p.exists()]
         parts.append(('role, instructions and note', size - sum(n for _, n in parts)))
-        sys.exit(f"review input is {size} bytes ({', '.join(f'{name} {n}' for name, n in parts)}); "
-                 f"ask_max_input_bytes is {max_input}. Shorten the pre-declaration or report, or raise "
-                 "ask_max_input_bytes in .arh/config/harnesses.md and give the reason to arh ask "
-                 "--terms-changed")
+        if plan_cap:
+            parts = [part for part in parts if part[0] != 'pre-declaration']
+        sys.exit(f"review input is {counted} bytes ({', '.join(f'{name} {n}' for name, n in parts)}"
+                 + (f'; the pre-declaration, {plan_size} bytes, is counted against '
+                    f'ask_max_predeclaration_bytes' if plan_cap else '')
+                 + f"); ask_max_input_bytes is {max_input}. Shorten the "
+                 + ('report or note' if plan_cap else 'pre-declaration or report')
+                 + ", or raise ask_max_input_bytes"
+                 + ('' if plan_cap else ' (or set ask_max_predeclaration_bytes, which takes the frozen plan out of it)')
+                 + " in .arh/config/harnesses.md and give the reason to arh ask --terms-changed")
     for record in valid_records(directory):
         data = json.loads(Path(record + '.json').read_text())
         if (Path(record).name.startswith('CROSSCHECK_' + role + '_' + harness + '_')
@@ -296,8 +324,14 @@ def run():
     provider = None
     if not (verdict or adjudication):
         err = Path(output + '.err')
-        provider = classify(text + '\n' + (err.read_text(errors="replace") if err.exists() else ''))
-        if provider:
+        provider = classify(text + '\n' + (err.read_text(errors="replace") if err.exists() else ''), prompt)
+        # A timeout produced no review either. It used to spend a review round and stop the fallback
+        # chain, so a verifier that timed out on four iterations in a row stalled them all (#51).
+        if provider is None and rc == 124:
+            provider = ('timeout', 75, f'no answer within {seconds} s (ask_timeout or harness_<name>_timeout)', None)
+        if provider and provider[0] == 'timeout':
+            print('arh: ' + provider[2], file=sys.stderr)       # the record keeps exit 124
+        elif provider:
             rc = provider[1]
             print('provider said: ' + provider[2], file=sys.stderr)
         elif rc == 0:
@@ -329,11 +363,46 @@ def run():
     with open(output + '.json', 'x') as record:
         json.dump(data, record, indent=2)
         record.write('\n')
-    return rc
+    return 75 if provider and provider[0] == 'timeout' else rc
+
+
+def probe():
+    """One short call to a verifier, so an expired login or an exhausted quota shows up in `arh doctor
+    --probe` and not when an iteration needs its review (field feedback #54, #75). Prints OK or the
+    provider's own line; exit 0, 75 or 77 as for a review."""
+    command, cwd, seconds = sys.argv[2:5]
+    prompt = 'This is a connectivity check. Reply with the single word OK.'
+    with tempfile.NamedTemporaryFile('w', suffix='.md', delete=False) as handle:
+        handle.write(prompt)
+    values = {'{prompt}': prompt, '{cwd}': cwd, '{usage}': os.devnull}
+    try:
+        argv = [re.sub(r'\{prompt\}|\{cwd\}|\{usage\}', lambda m: values[m.group()], arg) for arg in shlex.split(command)]
+        out = subprocess.run(argv, cwd=cwd, stdin=open(handle.name) if '{prompt}' not in command else subprocess.DEVNULL,
+                             capture_output=True, text=True, timeout=float(seconds), start_new_session=True)
+    except subprocess.TimeoutExpired:
+        print(f'no answer within {seconds} s')
+        return 75
+    except (OSError, ValueError) as error:
+        print(f'could not start: {error}')
+        return 1
+    finally:
+        os.unlink(handle.name)
+    provider = classify(out.stdout + '\n' + out.stderr, prompt)
+    if provider:
+        print(f'{provider[0]}: {provider[2]}')
+        return provider[1]
+    if out.returncode:
+        tail = (out.stderr.strip() or out.stdout.strip()).splitlines()[-1:] or ['no output']
+        print(f'exit {out.returncode}: {tail[0][:200]}')
+        return out.returncode
+    print('OK')
+    return 0
 
 
 if __name__ == '__main__':
-    if sys.argv[1] == 'budget':
+    if sys.argv[1] == 'probe':
+        sys.exit(probe())
+    elif sys.argv[1] == 'budget':
         budget()
     elif sys.argv[1] == 'valid':
         print('\n'.join(valid_records(sys.argv[2])))

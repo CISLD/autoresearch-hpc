@@ -2,13 +2,16 @@
 # Check the local/HPC environment and print concrete setup actions.
 set -euo pipefail
 . "${ARH_HOME:?}/lib/common.sh"
-smoke=""
+smoke=""; probe=0
 case "${1-}" in
-  --help|-h) echo 'usage: arh doctor [--smoke [gpu]]
+  --help|-h) echo 'usage: arh doctor [--smoke [gpu]] [--probe]
 --smoke runs one task through the configured scheduler and task image and checks what it can see:
 the task environment, a writable project, read-only immutable inputs, hidden sealed inputs, and with
-gpu a GPU in a task labelled gpu. It waits for the scheduler.'; exit 0 ;;
+gpu a GPU in a task labelled gpu. It waits for the scheduler.
+--probe sends a one-line prompt to the verifier and each verifier_fallback, so an expired login, a
+used-up quota or a missing CLI shows before an iteration needs its review. It is a model call.'; exit 0 ;;
   --smoke) smoke=cpu; [ "${2-}" != gpu ] || smoke=gpu ;;
+  --probe) probe=1 ;;
 esac
 warn=0
 printf 'AutoResearch HPC  ARH_HOME=%s\n\n' "$ARH_HOME"
@@ -136,6 +139,18 @@ for h in $(arh_config_get "$ARH_HARN" verifier_fallback ""); do
     *) arh_ok "verifier_fallback $h ($ff)" ;;
   esac
 done
+if [ "$probe" = 1 ]; then
+  for h in $verifier $(arh_config_get "$ARH_HARN" verifier_fallback ""); do
+    c=$(arh_config_get "$ARH_HARN" "harness_${h}_cmd" "")
+    [ -n "$c" ] || { arh_fail "probe $h: no harness_${h}_cmd"; warn=$((warn+1)); continue; }
+    if said=$(python3 "$ARH_HOME/lib/harness.py" probe "$c" "$ARH_ROOT" "$(arh_config_get "$ARH_HARN" doctor_probe_timeout 180)"); then
+      arh_ok "probe $h answered"
+    else arh_fail "probe $h: $said"; warn=$((warn+1)); fi
+  done
+else
+  # A login can expire while the CLI is still installed: "present" above does not mean usable.
+  arh_info "verifier logins and quotas are not checked; arh doctor --probe makes one short call to each"
+fi
 arh_warn_agent_mismatch
 web=$(arh_config_get "$ARH_HARN" web_access allow)
 case "$web" in allow|deny) ;; *) arh_fail "web_access must be allow or deny, not '$web'"; warn=$((warn+1)); web=allow ;; esac

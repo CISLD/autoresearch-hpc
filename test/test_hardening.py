@@ -160,7 +160,10 @@ harness_reviewer_cmd = python3 "{self.mock}" {{prompt}}{cmd_extra}
 
     def test_timeout_is_failure(self):
         self.configure('import time; time.sleep(10)', timeout=0.1)
-        result=self.ask(good=False); self.assertEqual(result.returncode, 124); self.gate(good=False)
+        # A timeout is an unavailable verifier (exit 75, fallback tried); the record keeps exit 124 (#51).
+        result = self.ask(good=False); self.assertEqual(result.returncode, 75); self.gate(good=False)
+        record = json.loads(next(self.it.glob('CROSSCHECK_*.md.json')).read_text())
+        self.assertEqual((record['exit_code'], record['provider_error_kind']), (124, 'timeout'))
 
     def test_quotes_and_cwd(self):
         self.configure("import os,sys; assert os.getcwd() == " + repr(str(self.root)) + "; assert len(sys.argv)==2; print('VERDICT: SOUND')")
@@ -1277,6 +1280,65 @@ print('PROPOSAL: '+request.read_text().splitlines()[0])
                        for p in self.it.glob('CROSSCHECK_*.md.json'))
         self.assertEqual(kinds, ['limit', 'review'])
         self.gate()
+
+    def test_expired_key_and_timeout_try_the_fallback_without_spending_a_round(self):
+        # OpenCode exited 1 on "This API key has expired", so the fallback never ran (field feedback
+        # #75); a verifier that timed out spent a review round and stopped the chain (#51).
+        backup = self.root / 'backup.py'
+        backup.write_text("print('VERDICT: SOUND')\n")
+        fallback = (f'verifier_fallback = backup\nharness_backup_family = google\n'
+                    f'harness_backup_cmd = python3 "{backup}" {{prompt}}\n')
+        self.configure("import sys; sys.stderr.write('This API key has expired. Create a new API key in OpenCode "
+                       "Console.\\n'); raise SystemExit(1)", extra_config=fallback)
+        result = self.ask()
+        self.assertIn("verifier 'reviewer' is unavailable", result.stderr)
+        self.assertIn('provider said: This API key has expired', result.stderr)
+        for old in self.it.glob('CROSSCHECK_*'):
+            old.unlink()
+        self.configure("import time; time.sleep(10)", timeout=1, extra_config=fallback)
+        self.ask()
+        records = {json.loads(p.read_text())['provider_error_kind'] or 'review': json.loads(p.read_text())
+                   for p in self.it.glob('CROSSCHECK_*.md.json')}
+        self.assertEqual(sorted(records), ['review', 'timeout'])
+        self.assertEqual(records['timeout']['exit_code'], 124)
+        # A slow harness gets its own bound.
+        for old in self.it.glob('CROSSCHECK_*'):
+            old.unlink()
+        self.configure("import time; time.sleep(2); print('VERDICT: SOUND')", timeout=1,
+                       extra_config='harness_reviewer_timeout = 30\n')
+        self.ask(); self.gate()
+
+    def test_provider_line_is_not_quoted_from_the_prompt(self):
+        # `codex exec` echoes the prompt to stderr; a report that mentioned a usage limit was quoted
+        # back as what the provider said (field feedback #76).
+        self.report.write_text(self.report.read_text() + 'The tool stops at its usage limit of 10 jobs.\n')
+        self.configure("import sys; sys.stderr.write(sys.argv[1] + '\\nERROR: rate limit reached, try again in 5 "
+                       "minutes\\n'); raise SystemExit(1)")
+        result = self.ask(good=False)
+        self.assertEqual(result.returncode, 75, result.stderr)
+        self.assertIn('provider said: ERROR: rate limit reached', result.stderr)
+        self.assertNotIn('usage limit of 10 jobs', result.stderr)
+
+    def test_predeclaration_can_have_its_own_input_cap(self):
+        # A frozen 31.8 kB plan left the report three trims and a one-line note (#82, #89).
+        size = len(self.call('ask', '-n', '1', '--dry-run').stdout.split('\n', 2)[2].encode())
+        plan = (self.it / 'README.md').stat().st_size
+        self.configure(extra_config=f'ask_max_input_bytes = {size - plan // 2}\n')
+        result = self.ask(good=False)
+        self.assertIn('ask_max_predeclaration_bytes', result.stderr)
+        self.assertFalse(list(self.it.glob('CROSSCHECK_*')))
+        self.configure(extra_config=f'ask_max_input_bytes = {size - plan // 2}\nask_max_predeclaration_bytes = {plan}\n')
+        self.ask(); self.gate()
+        self.configure(extra_config=f'ask_max_input_bytes = {size}\nask_max_predeclaration_bytes = {plan - 1}\n')
+        self.assertIn('ask_max_predeclaration_bytes is', self.call('ask', '-n', '1', '--note', 'again', good=False).stderr)
+
+    def test_doctor_probe_names_an_expired_verifier_login(self):
+        self.configure("print('Error: your session has expired. Please log in again.')")
+        out = self.call('doctor', '--probe', good=None).stdout
+        self.assertIn('FAIL probe reviewer: auth: Error: your session has expired', out)
+        self.configure("print('OK')")
+        self.assertIn('OK   probe reviewer answered', self.call('doctor', '--probe', good=None).stdout)
+        self.assertIn('arh doctor --probe makes one short call', self.call('doctor', good=None).stdout)
 
     def test_review_terms_are_bound_at_claim(self):
         # Nothing froze harnesses.md, so a producing agent could change the terms of its own

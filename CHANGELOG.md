@@ -27,6 +27,20 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   on another host, and with `--jobs` cancels noted scheduler jobs.
 - **Run receipts name who launched the run** (`user`, `host`, `session`), for projects shared by
   several people or accounts, and `arh doctor` says whether it runs inside a scheduler allocation.
+### Changed (field feedback #42–#89, 2026-10-15 to 10-26)
+- **A verifier that cannot answer is unavailable, whatever the reason.** An expired or revoked key
+  (OpenCode: "This API key has expired") exited 1 and stopped the review, so `verifier_fallback`
+  never ran (#75); a timeout spent a review round (#51). Both now exit 75, spend no round and try
+  the fallback; the record keeps exit 124 for a timeout. `harness_<name>_timeout` gives a slow
+  harness its own bound, and `ask_serialize = true` lets one review per verifier harness run at a
+  time across the project's sessions.
+- **"provider said" quotes the provider.** The line was taken from the first match in the
+  output and stderr, which `codex exec` fills with the prompt, so a report that mentioned a usage
+  limit was quoted as the refusal (#76). Prompt lines are skipped and the last match wins.
+- **`arh doctor --probe`** makes one short call to the verifier and each fallback, so an expired
+  login shows before an iteration needs its review (#54).
+- **`ask_max_predeclaration_bytes`** gives the frozen pre-declaration a cap of its own, so a
+  thorough plan no longer squeezes the report and the note (#82, #89).
 
 ### Changed (external review of v0.3.0)
 - **An `UNSOUND` verdict no longer concludes an iteration by itself.** v0.3.0 accepted
