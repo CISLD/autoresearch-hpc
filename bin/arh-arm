@@ -36,6 +36,7 @@ case "$sub" in
     for sec in "What this arm tests" "Acceptance criteria" "Negative control" "Fate"; do grep -qiF "$sec" "$r" && arh_ok "section: $sec" || { arh_fail "section missing: $sec"; fails=$((fails+1)); }; done
     grep -qE '^<|\{\{[A-Z_]+\}\}|\bTODO\b|\bTBD\b' "$r" && { arh_fail "template placeholders remain"; fails=$((fails+1)); } || arh_ok "no placeholders remain"
     [ "$fails" -gt 0 ] && { printf '\ngate FAILED (%s). Nothing frozen.\n' "$fails" >&2; exit 1; }
+    sed -i "s|^\*\*Status: DRAFT (claimed [^)]*); arh gate predeclare stamps the freeze date here\.\*\*\$|**Status: PRE-DECLARED $(arh_today) (frozen by arh arm freeze). Written BEFORE any result exists.**|" "$r"
     arh_sha256 "$r" > "$a/PREDECLARATION.sha256"; printf '%s\n' "$(arh_now)" >> "$a/PREDECLARATION.sha256"; printf '\ngate PASSED. Arm %s frozen.\n' "$arm"
     ;;
   fate)

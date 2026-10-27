@@ -36,7 +36,10 @@ def knowledge(root):
     """{label: path} of the files that carry what outlives a session: the study's directives and
     gotchas, and the site's shared gotchas when site.md names them. Missing files are left out."""
     root = Path(root)
-    found = {name: root / name for name in ('DIRECTIVES.md', 'GOTCHAS.md') if (root / name).is_file()}
+    # The label stays DIRECTIVES.md in records; `directives =` in project.md can name another file.
+    directives = config(root / '.arh/config/project.md').get('directives') or 'DIRECTIVES.md'
+    found = {name: root / path for name, path in (('DIRECTIVES.md', directives), ('GOTCHAS.md', 'GOTCHAS.md'))
+             if (root / path).is_file()}
     shared = config(root / '.arh/config/site.md').get('site_gotchas', '')
     if shared and Path(shared).is_file():
         found['site_gotchas'] = Path(shared)

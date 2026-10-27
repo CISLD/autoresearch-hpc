@@ -197,7 +197,7 @@ else
   printf 'Project root: %s\nIteration: %s\nDirectory: %s\n\n' "$ARH_ROOT" "$n" "$dir"
   printf 'Standing rules every conclusion inherits are in %s/rules/.\n' "$ARH_ROOT"
   printf 'Recorded silent failure modes are in %s/GOTCHAS.md.\n' "$ARH_ROOT"
-  [ ! -f "$ARH_ROOT/DIRECTIVES.md" ] || printf 'Operator directives, data locations and external findings the work must follow are in\n%s/DIRECTIVES.md; check the work against them.\n' "$ARH_ROOT"
+  [ ! -f "$ARH_DIRECTIVES" ] || printf 'Operator directives, data locations and external findings the work must follow are in\n%s; check the work against them.\n' "$ARH_DIRECTIVES"
   site_gotchas=$(arh_config_get "$ARH_SITE" site_gotchas "")
   [ -z "$site_gotchas" ] || [ ! -f "$site_gotchas" ] || printf 'Tool and site pitfalls shared across projects are in %s.\n' "$site_gotchas"
   printf '\n'

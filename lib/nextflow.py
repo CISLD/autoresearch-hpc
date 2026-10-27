@@ -418,6 +418,16 @@ def run():
                                         project.get('iterations_dir', 'iterations'),
                                         project.get('verification_dir', 'verification'))
         undeclared = sorted(set(referenced) - set(import_sha256))
+        # A workflow that passes another iteration's scripts/ directory as a parameter references every
+        # file in it; all are hashed, but only those named by file name are worth a warning, or the one
+        # real undeclared import is lost among files that never run (field feedback #64, #72, #81).
+        named_text = '\n'.join(t.read_text(errors='replace') for t in [workflow] + [root / p for p in script_sha256]
+                                + ([args.params.resolve()] if args.params else []) if t.is_file())
+        quiet = [r for r in undeclared if Path(r).name not in named_text]
+        undeclared = [r for r in undeclared if r not in quiet]
+        if quiet:
+            print(f'arh: {len(quiet)} other file(s) under a scripts/ directory the workflow names are hashed in '
+                  'run.json as referenced_sha256; none is named by file name, so none is listed', file=sys.stderr)
         if undeclared:
             print('arh: the scripts name code from other iterations that the pre-declaration does not declare '
                   'as imports (hashed in run.json as referenced_sha256): ' + ', '.join(undeclared[:5])

@@ -70,6 +70,20 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   the rest stay covered by empty mounts. `sealed_inputs_file` and `sealed_inputs_<group>_file`
   name a file with one path per line (#46). `arh freeze preseal -n N --reason TEXT` records reads
   that happened before a path was sealed; `arh freeze list` and `arh doctor` show them apart (#45).
+- **A takeover shows what the previous holder left.** `arh lease take` named only who had held
+  the iteration, and a restarted session overwrote the other's draft script (#79, #65). It now
+  lists the files changed under the iteration since the previous holder took it (scripts and the
+  report; not logs, metadata or run outputs), and the lease history keeps the list. A claim made
+  without a session id while the same agent on the same host holds another open iteration, also
+  without one, says that the leases cannot tell those agents apart (#57).
+- **Smaller fixes from the same study.** `arh note --job` takes a comma list, one note per job
+  (#58). `arh status -n N[,M]` checks only those iterations (#52). An unrecognised answer in
+  `REVIEW_RESPONSE.md` ("F4: noted.") names the accepted decision words (#85). `directives =`
+  (`project.md`) names the directives file when a study keeps them elsewhere (#47). `arh new`
+  scaffolds `Status: DRAFT`, and `arh gate predeclare` stamps the freeze date into the line before
+  hashing it, so a half-written plan no longer reads as pre-declared with its claim date (#80).
+  A scripts/ directory passed to a workflow as a parameter is still hashed whole, but only files
+  the workflow names by file name are listed as undeclared imports (#64, #72, #81).
 - **The report-number check reads summaries first.** It read `results/` in path order and spent
   its 64 MB on per-sample tables before the summary holding every reported number (#70). Files
   named by `report_numbers_files` (`project.md`) come first, then files the report names, then the

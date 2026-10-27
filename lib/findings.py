@@ -41,6 +41,8 @@ import sys
 from harness import valid_adjudications, valid_records
 
 FINDING = re.compile(r'^\s*(?:[-*+]\s+|\d+\.\s+)?(?:\*\*|__)?\[?(F\d{1,3})\]?(?:\*\*|__)?\s*[:.)\]–—-]\s*(?:\*\*|__)?\s*(.+)$')
+DECISION_WORDS = ('accepted', 'rejected', 'fixed', 'addressed', 'deferred', 'disputed', 'declined', 'acknowledged',
+                  'not applicable', "won't fix", 'verified', 'new iteration', 'partly accepted')
 DECISION = re.compile(r"\b(accept(?:ed)?|reject(?:ed)?|fix(?:ed)?|addressed|deferred|disput(?:e|ed)|declined|"
                       r"acknowledged|not applicable|n/a|won't fix|verified|new iteration|partly accepted)\b", re.I)
 
@@ -246,6 +248,10 @@ def check(directory, mode):
     for review, fid, summary, found in rows:
         mark = f'answered ({found})' if found else 'UNANSWERED'
         print(f'       {review}: {fid} {mark}: {summary}')
+    if open_rows and has_response:
+        # "F4: noted." reads as an answer and was refused without saying why (field feedback #85).
+        print('       an answer is the finding id with one of: ' + ', '.join(DECISION_WORDS)
+              + ' (and the reason), in the same paragraph')
     return 1 if open_rows and mode == 'require' else 0
 
 

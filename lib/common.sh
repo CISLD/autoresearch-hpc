@@ -63,11 +63,13 @@ arh_load_project() {
   ARH_VERIFY="$ARH_ROOT/$(arh_config_get "$ARH_PROJ" verification_dir verification)"
   ARH_LEDGER="$ARH_ROOT/$(arh_config_get "$ARH_PROJ" ledger PROGRESS.md)"
   ARH_REGISTRY="$ARH_STATE/registry.tsv"
+  # The operator's directives file; a study that kept them in VALIDATION_PROTOCOL.md names it (#47).
+  ARH_DIRECTIVES="$ARH_ROOT/$(arh_config_get "$ARH_PROJ" directives DIRECTIVES.md)"
   # Which environment variables carry the harness's own session id (harnesses.md session_env).
   ARH_SESSION_ENV=$(arh_config_get "$ARH_HARN" session_env "")
   # auto: gitleaks's maintained rules on top of the built-in patterns when gitleaks is installed.
   ARH_SECRET_SCANNER=$(arh_config_get "$ARH_HARN" secret_scanner auto)
-  export ARH_ROOT ARH_STATE ARH_CONF ARH_SITE ARH_PROJ ARH_HARN ARH_GENS ARH_ITERS ARH_VERIFY ARH_LEDGER ARH_REGISTRY \
+  export ARH_ROOT ARH_STATE ARH_CONF ARH_SITE ARH_PROJ ARH_HARN ARH_GENS ARH_ITERS ARH_VERIFY ARH_LEDGER ARH_REGISTRY ARH_DIRECTIVES \
     ARH_SESSION_ENV ARH_SECRET_SCANNER
 }
 

@@ -90,7 +90,7 @@ case "$timeout_s$limit" in *[!0-9]*) arh_die "delegate_timeout and delegate_max_
 config_sha=$(arh_sha256 "$ARH_HARN")
 
 sources=()
-for f in "$dir/README.md" "$ARH_ROOT/DIRECTIVES.md" "$prompt_file"; do [ -z "$f" ] || [ ! -f "$f" ] || sources+=("$f"); done
+for f in "$dir/README.md" "$ARH_DIRECTIVES" "$prompt_file"; do [ -z "$f" ] || [ ! -f "$f" ] || sources+=("$f"); done
 if ! arh_secret_scan "$note" "${sources[@]}"; then
   [ "$dry" = 1 ] || arh_die "the delegated request would carry what looks like a credential (above). Nothing was sent.
        Remove it; if it is a false positive, set secret_scan = off in .arh/config/harnesses.md"
@@ -124,9 +124,9 @@ request="$run/request.md"; output="$run/artifacts"
   fi
   # Directives bind the executor as much as the orchestrator; a delegated session has no other way to
   # learn what the operator decided. Gotchas can be long, so they are named rather than inlined.
-  if [ -f "$ARH_ROOT/DIRECTIVES.md" ]; then
-    printf '\n## Operator directives and durable knowledge (DIRECTIVES.md; follow them)\n\n'
-    cat "$ARH_ROOT/DIRECTIVES.md"; printf '\n'
+  if [ -f "$ARH_DIRECTIVES" ]; then
+    printf '\n## Operator directives and durable knowledge (%s; follow them)\n\n' "${ARH_DIRECTIVES##*/}"
+    cat "$ARH_DIRECTIVES"; printf '\n'
   fi
   printf '\n## Known silent failure modes\n\nRead %s/GOTCHAS.md before writing code' "$ARH_ROOT"
   site_gotchas=$(arh_config_get "$ARH_SITE" site_gotchas "")

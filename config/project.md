@@ -112,6 +112,9 @@ task_project_access = ro
 # Scripts already in scripts/ when the plan is frozen are pinned with it. A run after one of them
 # changed: warn (reported, and recorded in the run receipt), refuse, or off.
 frozen_scripts    = warn
+# The operator's directives file (data locations, decisions, external findings), read by every
+# review and delegation. A study that keeps them elsewhere names that file here.
+directives        = DIRECTIVES.md
 report_numbers_files =
 freeze_anchor     =
 ```

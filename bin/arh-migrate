@@ -93,7 +93,7 @@ if not generators.exists():
 # Durable knowledge lives in the project (agent contract rule 10). A study that predates the files
 # gets empty templates; existing ones are never touched.
 for name in ('DIRECTIVES.md', 'GOTCHAS.md'):
-    if not (root / name).exists():
+    if not (root / (config_value(cfg / 'project.md', 'directives', name) if name == 'DIRECTIVES.md' else name)).exists():
         rewrites[root / name] = (home / 'templates' / name).read_text().replace('{{PROJECT}}', root.name)
         changes.append(f'{name}: added from the template (where directives and gotchas are written)')
 for p in sorted((root / 'rules').glob('*.md')):

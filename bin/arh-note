@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Record work that ran outside `arh submit`, so the record says it exists and has no receipt.
 #
-#   arh note -n N [--job ID] TEXT    append a note to iterationN/metadata/notes.jsonl
+#   arh note -n N [--job ID[,ID...]] TEXT    append a note to iterationN/metadata/notes.jsonl
 #   arh note list [-n N]             show the notes, newest last
 #
 # GPU arms run by sbatch, a recount on a login node, a job chain a session started before it hit a
@@ -57,7 +57,8 @@ fi
 dir="$ARH_ITERS/iteration$n"
 [ -f "$dir/CLAIM.json" ] || arh_die "no claimed iteration $n"
 [ ${#text[@]} -gt 0 ] || arh_die "say what ran and where its output is: arh note -n $n --job 967736 'LAYA folds by sbatch array; logs in logs/laya/'"
-case "$job" in *[!A-Za-z0-9_.:+-]*) arh_die "--job takes a scheduler job id" ;; esac
+# Several jobs submitted together are one note per job (field feedback #58), so each is followed.
+case "$job" in *[!A-Za-z0-9_.:+,-]*|,*|*,|*,,*) arh_die "--job takes a scheduler job id, or several separated by commas" ;; esac
 arh_guard_path "$dir/metadata/notes.jsonl"
 arh_lease_touch "$dir" "arh note"
 mkdir -p "$dir/metadata"
@@ -65,6 +66,7 @@ python3 - "$dir/metadata/notes.jsonl" "$(arh_now)" "$(arh_agent_name)" "$(uname 
 import json, sys
 path, time, agent, host, job, text = sys.argv[1:7]
 with open(path, 'a') as handle:
-    handle.write(json.dumps(dict(time=time, agent=agent, host=host, job=job or None, text=text)) + '\n')
+    for one in (job.split(',') if job else [None]):
+        handle.write(json.dumps(dict(time=time, agent=agent, host=host, job=one, text=text)) + '\n')
 PY
 printf 'noted for iteration %s%s\n' "$n" "${job:+ (job $job)}"

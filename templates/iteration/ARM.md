@@ -1,6 +1,6 @@
 # Iteration {{N}} · Arm {{ARM}} — {{TITLE}}
 
-**Status: PRE-DECLARED {{DATE}}. Written BEFORE any result exists.**
+**Status: DRAFT (claimed {{DATE}}); arh gate predeclare stamps the freeze date here.**
 Inherits iteration {{N}}'s question, estimand and standing rules. This file
 states only what is *specific to this arm*.
 

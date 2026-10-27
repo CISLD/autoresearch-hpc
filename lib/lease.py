@@ -100,6 +100,8 @@ def touch(directory, command, who):
     lease = load(directory)
     if lease is None:
         lease = dict(holder=who, since=now())
+        if not who.get('session'):
+            shared_session_warning(directory, who)
     elif not same(lease['holder'], who):
         last = lease.get('last', {})
         print(f"arh: iteration {Path(directory).name[9:]} is held by {name(lease['holder'])}, last active "
@@ -109,6 +111,24 @@ def touch(directory, command, who):
     lease['last'] = dict(time=now(), command=command, **{k: who[k] for k in ('agent', 'host')})
     save(directory, lease)
     log_activity(directory, command, who)
+
+
+def shared_session_warning(directory, who):
+    """A new iteration claimed without a session id while another open iteration is held by the same
+    agent on the same host, also without one: leases cannot tell those agents apart. One overseer ran
+    five background agents of one session, all 'claude' with no ARH_SESSION (field feedback #57)."""
+    base = Path(directory).parent
+    for other in base.glob('iteration*'):
+        if other == Path(directory):
+            continue
+        lease = load(other)
+        holder = (lease or {}).get('holder') or {}
+        if (holder and not holder.get('session') and same(holder, who)
+                and not ((other / 'results/report' / f'{other.name}_report.md').is_file() and reviewed(other))):
+            print(f"arh: iteration {other.name[9:]} is open and held by {name(holder)} too, and neither has a session id, "
+                  "so the lease cannot tell these agents apart. Give each concurrent agent its own "
+                  "ARH_SESSION=<name> before it runs arh.", file=sys.stderr)
+            return
 
 
 def harness_session():
@@ -175,15 +195,51 @@ def log_activity(directory, command, who):
         log.write(json.dumps(entry) + '\n')
 
 
+# A takeover summary looks at drafts, not run evidence or arh's own records: results/ only for the report.
+NOT_DRAFTS = {'logs', 'metadata', '.nextflow', 'work', '__pycache__'}
+
+
+def changed_since(directory, stamp, limit=15):
+    """[(mtime, relative path)] of files under the iteration modified since STAMP, newest first. A
+    replacement session took an iteration over and overwrote the previous holder's draft of the same
+    script, because take printed only who had held it (field feedback #79, #65)."""
+    try:
+        since = datetime.strptime(stamp, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).timestamp()
+    except (TypeError, ValueError):
+        return []
+    base = str(directory)
+    found = []
+    for top, dirs, files in os.walk(base):
+        rel = os.path.relpath(top, base)
+        dirs[:] = [d for d in dirs if d not in NOT_DRAFTS
+                   and not (rel == 'results' and d != 'report') and not (rel == '.' and d.startswith('.'))]
+        for f in files:
+            path = os.path.join(top, f)
+            try:
+                mtime = os.stat(path).st_mtime
+            except OSError:
+                continue
+            if mtime >= since:
+                found.append((mtime, os.path.relpath(path, base)))
+    return sorted(found, reverse=True)[:limit]
+
+
 def take(directory, reason, who):
     lease = load(directory) or {}
+    drafts = changed_since(directory, lease.get('since')) if lease.get('holder') else []
     with open(Path(directory) / 'metadata/lease-history.jsonl', 'a') as history:
         history.write(json.dumps(dict(time=now(), previous=lease.get('holder'), previous_last=lease.get('last'),
-                                      holder=who, reason=reason)) + '\n')
+                                      holder=who, reason=reason,
+                                      changed_under_previous=[rel for _, rel in drafts])) + '\n')
     save(directory, dict(holder=who, since=now(), last=dict(time=now(), command='arh lease take',
                                                              agent=who['agent'], host=who['host'])))
     print(f"iteration {Path(directory).name[9:]} is now held by {name(who)}"
           + (f"; it was held by {name(lease['holder'])}" if lease.get('holder') else ''))
+    if drafts:
+        print(f"files changed since {name(lease['holder'])} took it ({lease.get('since')}), newest first; "
+              "read them before writing over them:")
+        for mtime, rel in drafts:
+            print(f"  {datetime.fromtimestamp(mtime, timezone.utc).strftime('%Y-%m-%d %H:%M')}Z  {rel}")
 
 
 def show(directory):

@@ -216,7 +216,7 @@ fi
 printf '\nknowledge:\n'
 # Facts that outlive a session belong in the project, where every harness and the reviewer read them
 # (agent contract rule 10). A study once ran on directives held only in one harness's private memory.
-for f in DIRECTIVES.md GOTCHAS.md; do
+for f in "${ARH_DIRECTIVES#"$ARH_ROOT"/}" GOTCHAS.md; do
   if [ -f "$ARH_ROOT/$f" ]; then arh_ok "$f"
   else
     arh_warn "$f is missing, so what it should hold lives only in some session's memory; fix: arh migrate $ARH_ROOT --apply"

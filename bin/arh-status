@@ -3,15 +3,24 @@
 set -euo pipefail
 # shellcheck source=lib/common.sh
 . "${ARH_HOME:?}/lib/common.sh"
-json=0; running=0
+json=0; running=0; only=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --json) json=1; shift ;;
     --running) running=1; shift ;;
-    --help) echo 'usage: arh status [--json] [--running]'; exit 0 ;;
+    -n|--iteration) only="${2-}"; shift 2 ;;
+    --help) echo 'usage: arh status [--json] [--running] [-n N[,M...]]
+-n: only these iterations. Every iteration is hashed, which took 10–25 minutes on CephFS at 54 iterations.'; exit 0 ;;
     *) shift ;;
   esac
 done
+case "$only" in *[!0-9,]*) arh_die "-n takes iteration numbers separated by commas" ;; esac
+# The iterations to show: all of them, or those named with -n (field feedback #52).
+list_iterations() {
+  find "$ARH_ITERS" -maxdepth 1 -type d -name 'iteration*' 2>/dev/null \
+    | sed -n 's|.*/iteration\([0-9]\{1,\}\)$|\1|p' | sort -n \
+    | { if [ -n "$only" ]; then grep -Fxf <(tr ',' '\n' <<< "$only"); else cat; fi; } || true
+}
 arh_load_project
 
 # What is running now: live submissions with their trace counts, reviews, and noted scheduler jobs.
@@ -21,8 +30,7 @@ fi
 
 # Machine-readable form, so `arh` is a usable API and callers need not scrape text.
 if [ "$json" = 1 ]; then
-  iters=$(find "$ARH_ITERS" -maxdepth 1 -type d -name 'iteration*' 2>/dev/null \
-          | sed -n 's|.*/iteration\([0-9]\{1,\}\)$|\1|p' | sort -n)
+  iters=$(list_iterations)
   jsonroot=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$ARH_ROOT")
   printf '{\n  "project": %s,\n  "iterations": [' "$jsonroot"
   attempts=$(python3 "$ARH_HOME/lib/attempts.py" json "$ARH_ITERS")
@@ -61,8 +69,7 @@ printf 'scheduler=%s  containers=%s  producer=%s  verifier=%s\n\n' \
 printf '%-5s %-12s %-11s %-9s %-7s %s\n' IT AGENT PREDECL RESULTS XCHECK TITLE
 printf '%-5s %-12s %-11s %-9s %-7s %s\n' ----- ------------ ----------- --------- ------- -----
 found=0; changed=""; noted=""
-iters=$(find "$ARH_ITERS" -maxdepth 1 -type d -name 'iteration*' 2>/dev/null \
-        | sed -n 's|.*/iteration\([0-9]\{1,\}\)$|\1|p' | sort -n)
+iters=$(list_iterations)
 for d in $iters; do
   found=1
   dir="$ARH_ITERS/iteration$d"

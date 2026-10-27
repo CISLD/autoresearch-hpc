@@ -1861,6 +1861,15 @@ elif args[0] == 'list':
         self.assertIn('does not declare as imports', result.stderr)
         record = json.loads(next((it / 'logs/nextflow/run').glob('attempt-*/run.json')).read_text())
         self.assertIn('iterations/iteration1/scripts/it1_00_helper.py', record['referenced_sha256'])
+        # A whole scripts/ directory passed as a parameter: hashed, but only named files are listed (#64, #72, #81).
+        (self.it / 'scripts/it1_09_unused.py').write_text('print(9)\n')
+        script.write_text(f'D={self.root}/iterations/iteration1/scripts\npython3 $D/it1_00_helper.py\n')
+        result = self.call('submit', str(script), '-n', 'dir')
+        self.assertIn('it1_00_helper.py', result.stderr)
+        self.assertNotIn('it1_09_unused.py', result.stderr)
+        self.assertIn('other file(s) under a scripts/ directory', result.stderr)
+        record = json.loads(next((it / 'logs/nextflow/dir').glob('attempt-*/run.json')).read_text())
+        self.assertIn('iterations/iteration1/scripts/it1_09_unused.py', record['referenced_sha256'])
 
     def verification(self, name='recount'):
         self.call('verify', 'new', name, '-m', 'recalculation', '--of', '1')
@@ -1958,6 +1967,79 @@ elif args[0] == 'list':
         history = json.loads((self.it / 'metadata/lease-history.jsonl').read_text().splitlines()[-1])
         self.assertEqual(history['previous'], holder)
         self.assertIn('held by other-agent', self.call('status').stdout)
+
+    def test_takeover_lists_what_the_previous_holder_changed(self):
+        # A replacement session overwrote the previous holder's draft, because take named only the holder (#79, #65).
+        self.call('note', '-n', '1', 'first session')
+        lease = json.loads((self.it / 'metadata/lease.json').read_text())
+        lease['since'] = '2000-01-01T00:00:00Z'
+        (self.it / 'metadata/lease.json').write_text(json.dumps(lease))
+        (self.it / 'scripts/it1_02_alleles.py').write_text('draft\n')
+        env, self.env = self.env, dict(self.env, ARH_AGENT='other-agent', ARH_SESSION='s2')
+        try:
+            out = self.call('lease', 'take', '-n', '1', '--reason', 'the first session stopped six days ago').stdout
+        finally:
+            self.env = env
+        self.assertIn('scripts/it1_02_alleles.py', out)
+        self.assertNotIn('metadata/', out)
+        history = json.loads((self.it / 'metadata/lease-history.jsonl').read_text().splitlines()[-1])
+        self.assertIn('scripts/it1_02_alleles.py', history['changed_under_previous'])
+
+    def test_concurrent_agents_without_a_session_are_warned_at_claim(self):
+        # Five background agents of one session claimed with no ARH_SESSION; leases could not tell them apart (#57).
+        env = dict(self.env, ARH_AGENT='claude'); env.pop('ARH_SESSION', None)
+        run = lambda *a: subprocess.run([str(ROOT / 'bin/arh'), *a], env=env, cwd=self.root,  # noqa: E731
+                                        capture_output=True, text=True)
+        run('note', '-n', '1', 'held by claude')
+        lease = json.loads((self.it / 'metadata/lease.json').read_text())
+        self.assertEqual(lease['holder']['agent'], 'claude')
+        self.assertIn('cannot tell these agents apart', run('claim', '-t', 'second').stderr)
+        self.assertNotIn('cannot tell', subprocess.run([str(ROOT / 'bin/arh'), 'claim', '-t', 'third'],
+                                                     env=dict(env, ARH_SESSION='agent-3'), cwd=self.root,
+                                                     capture_output=True, text=True).stderr)
+
+    def test_note_takes_several_jobs_and_status_takes_one_iteration(self):
+        self.call('note', '-n', '1', '--job', '1149639,1149640', 'five smoke folds submitted together')   # #58
+        jobs = [json.loads(l)['job'] for l in (self.it / 'metadata/notes.jsonl').read_text().splitlines()]
+        self.assertEqual(jobs, ['1149639', '1149640'])
+        self.call('note', '-n', '1', '--job', '1,,2', 'bad', good=False)
+        self.call('claim', '-t', 'second')
+        out = self.call('status', '-n', '2').stdout                                                        # #52
+        self.assertRegex(out, r'(?m)^2 ')
+        self.assertNotRegex(out, r'(?m)^1 ')
+        self.assertEqual([i['iteration'] for i in json.loads(self.call('status', '--json', '-n', '1').stdout)['iterations']], [1])
+
+    def test_an_unrecognised_decision_names_the_accepted_words(self):
+        self.configure("print('VERDICT: QUALIFIED\\nF1: the threshold is unstated')")
+        self.ask()
+        (self.it / 'REVIEW_RESPONSE.md').write_text('# Review response\n\nF1: noted.\n')             # #85
+        out = self.gate(good=False).stdout
+        self.assertIn('an answer is the finding id with one of: accepted, rejected', out)
+
+    def test_directives_can_live_in_another_file(self):
+        # A study kept its directives in VALIDATION_PROTOCOL.md; DIRECTIVES.md was a fixed name (#47).
+        (self.root / 'VALIDATION_PROTOCOL.md').write_text('# Validation protocol\nHG002 confirms, never selects.\n')
+        self.set_config('project.md', directives='VALIDATION_PROTOCOL.md')
+        self.assertIn(f'{self.root}/VALIDATION_PROTOCOL.md', self.call('ask', '-n', '1', '--dry-run').stdout)
+        self.ask()
+        record = json.loads(next(self.it.glob('CROSSCHECK_*.md.json')).read_text())
+        self.assertEqual(record['knowledge_sha256']['DIRECTIVES.md'],
+                         hashlib.sha256((self.root / 'VALIDATION_PROTOCOL.md').read_bytes()).hexdigest())
+
+    def test_scaffold_is_a_draft_until_the_gate_stamps_it(self):
+        # arh new wrote "PRE-DECLARED <claim date>" into a plan frozen six days later (#80).
+        self.call('claim', '-t', 'second')
+        self.call('new', '-n', '2')
+        readme = self.root / 'iterations/iteration2/README.md'
+        self.assertIn('Status: DRAFT', readme.read_text())
+        text = readme.read_text()
+        for heading in re.findall(r'(?m)^## .*$', text):
+            text = text.replace(heading + '\n', heading + '\nFilled for the test.\n', 1)
+        readme.write_text(re.sub(r'(?m)^<.*$|\{\{[A-Z_]+\}\}', 'x', text))
+        self.call('gate', 'predeclare', '-n', '2')
+        self.assertRegex(readme.read_text(), r'Status: PRE-DECLARED \d{4}-\d{2}-\d{2} \(frozen by arh gate predeclare\)')
+        self.assertEqual((self.root / 'iterations/iteration2/PREDECLARATION.sha256').read_text().split()[0],
+                         hashlib.sha256(readme.read_bytes()).hexdigest())
 
     def test_inputs_check_reads_end_markers_and_caches_passes(self):
         # A truncated CRAM (no end-of-file container) made a caller drop chr11-22 silently (2026-10-04).

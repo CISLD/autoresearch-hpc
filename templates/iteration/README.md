@@ -1,6 +1,6 @@
 # Iteration {{N}} — {{TITLE}}
 
-**Status: PRE-DECLARED {{DATE}}. Written BEFORE any result exists.**
+**Status: DRAFT (claimed {{DATE}}); arh gate predeclare stamps the freeze date here.**
 **Claimed by:** {{AGENT}} (`CLAIM.json`).
 
 > Complete every section below, then run `arh gate predeclare -n {{N}}`. The gate
