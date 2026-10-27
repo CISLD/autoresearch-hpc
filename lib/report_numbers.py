@@ -9,7 +9,8 @@ pre-declaration are declared constants, not results, and version strings and the
 are skipped. A number computed in the text (a difference of two others) shows up as unmatched; that
 is a prompt to put it in a results file, not proof of an error.
 
-  report_numbers.py check DIR REPORT     one line per unmatched number: LINE<TAB>NUMBER<TAB>context
+  report_numbers.py check DIR REPORT [GLOBS]   one line per unmatched number: LINE<TAB>NUMBER<TAB>context;
+                                               GLOBS (report_numbers_files) are read first
 """
 from pathlib import Path
 import re
@@ -39,13 +40,34 @@ def report_numbers(report, declared):
     return out
 
 
-def results_values(directory, report):
+def reading_order(directory, report, first=()):
+    """Results files in the order they are read: files named by report_numbers_files, then files the
+    report names, then the rest smallest first. Reading in path order spent the whole byte budget on
+    89 MB of per-sample tables and never reached the summary that held every reported number (field
+    feedback #70)."""
+    results = Path(directory) / 'results'
+    files = [p for p in results.rglob('*') if p.is_file() and p.resolve() != Path(report).resolve()
+             and p.suffix.lower() in TEXT_SUFFIXES]
+    text = Path(report).read_text(errors='replace')
+    chosen = {p for pattern in first for p in results.glob(pattern) if p.is_file()}
+
+    def rank(path):
+        named = str(path.relative_to(results)) in text or path.name in text
+        return (0 if path in chosen else 1 if named else 2, path.stat().st_size, str(path))
+    return sorted(files, key=rank)
+
+
+def results_values(directory, report, first=()):
     values, size = set(), 0
-    for path in sorted((Path(directory) / 'results').rglob('*')):
-        if not path.is_file() or path.resolve() == Path(report).resolve() or path.suffix.lower() not in TEXT_SUFFIXES:
-            continue
+    files = reading_order(directory, report, first)
+    for i, path in enumerate(files):
         size += path.stat().st_size
         if size > MAX_BYTES:
+            total = sum(p.stat().st_size for p in files)
+            print(f'arh: the number check read {(size - path.stat().st_size) / 2**20:.0f} of {total / 2**20:.0f} MB '
+                  f'of results and stopped at {path.relative_to(directory)} ({len(files) - i} file(s) unread). '
+                  'Name the summary files in project.md as report_numbers_files = <glob> to read them first.',
+                  file=sys.stderr)
             break
         for token in TOKEN.findall(path.read_text(errors='replace')):
             try:
@@ -57,14 +79,14 @@ def results_values(directory, report):
     return values
 
 
-def unmatched(directory, report):
+def unmatched(directory, report, first=()):
     plan = Path(directory) / 'README.md'
     declared = set(m.group(1).replace(',', '') for m in NUMBER.finditer(plan.read_text(errors='replace'))) \
         if plan.is_file() else set()
     wanted = report_numbers(report, declared)
     if not wanted:
         return []
-    values = results_values(directory, report)
+    values = results_values(directory, report, first)
     if not values:
         return [(line, text, 'no numeric results file under results/') for line, text, *_ in wanted[:1]]
     by_decimals = {}
@@ -84,7 +106,7 @@ def unmatched(directory, report):
 
 if __name__ == '__main__':
     if sys.argv[1] == 'check':
-        for line, text, context in unmatched(sys.argv[2], sys.argv[3]):
+        for line, text, context in unmatched(sys.argv[2], sys.argv[3], sys.argv[4].split() if len(sys.argv) > 4 else ()):
             print(f'{line}\t{text}\t{context}')
     else:
         sys.exit(f'unknown command: {sys.argv[1]}')

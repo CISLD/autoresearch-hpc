@@ -112,6 +112,24 @@ def detach(lock, logs, owner_dir, kind):
     return 0
 
 
+def notify(hook, record, attempt, name, owner, root):
+    """Run the on_exit command once Nextflow has exited. A detached run that failed while its session
+    was stopped at a usage limit stayed failed for hours with nobody told (field feedback #61, #63).
+    The command gets the outcome in ARH_RUN_* variables; it cannot change the run or its receipt."""
+    env = dict(os.environ, ARH_RUN_EXIT=str(record.get('exit_code')), ARH_RUN_NAME=name,
+               ARH_RUN_ATTEMPT=str(attempt), ARH_RUN_OWNER=str(Path(owner).relative_to(root)),
+               ARH_RUN_SIGNAL=record.get('signal') or '', ARH_ROOT=str(root))
+    try:
+        done = subprocess.run(shlex.split(hook), env=env, cwd=root, stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True, timeout=120)
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        print(f'arh: on_exit command failed: {error}', file=sys.stderr)
+        return dict(command=hook, exit_code=None, error=str(error)[:200])
+    if done.returncode:
+        print(f'arh: on_exit command exited {done.returncode}', file=sys.stderr)
+    return dict(command=hook, exit_code=done.returncode)
+
+
 def run():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('workflow', type=Path)
@@ -123,6 +141,8 @@ def run():
     parser.add_argument('--lint', action='store_true', help='check the workflow with the pinned Nextflow; nothing runs')
     parser.add_argument('--detach', action='store_true',
                         help='return once the run holds its launch lock; follow it with arh wait or arh status --running')
+    parser.add_argument('--on-exit', metavar='CMD',
+                        help="run CMD when Nextflow exits (as site.md's on_exit), e.g. to mail or notify a watcher")
     args = parser.parse_args()
     root, home = Path(os.environ['ARH_ROOT']), Path(os.environ['ARH_HOME'])
     site = config(root / '.arh/config/site.md')
@@ -275,6 +295,10 @@ def run():
                      + (f'{held}; stop it with kill -TERM' if str(held) else ''))
     try:
         attempt = Path(tempfile.mkdtemp(prefix='attempt-', dir=logs))
+        if os.environ.get('ARH_DETACHED'):
+            # The detached log otherwise held only arh's warnings; the live log is in the attempt (#71).
+            print(f'arh: attempt {attempt}; live log {attempt / "nextflow.log"}, trace {attempt / "trace.tsv"}',
+                  file=sys.stderr, flush=True)
         env = dict(os.environ, NXF_HOME=str(root / '.arh/nextflow'), NXF_VER=version,
                    NXF_ANSI_LOG='false', NXF_DISABLE_CHECK_LATEST='true', NXF_OFFLINE='true')
         # Plugins/images must be staged in advance for offline execution.
@@ -340,8 +364,16 @@ def run():
             container_options = f"({has(label)} ? {literal('--env PATH=' + spec['path'])} : {container_options})"
         if gpu:
             container_options += f" + ({WANTS_GPU} ? ' --nv' : '')"
-        lines = [f'process.executor = {literal(executor)}', 'process.errorStrategy = "terminate"',
-                 'process.maxRetries = 0', 'tower.enabled = false', 'wave.enabled = false',
+        # task_retries = N retries a failed task up to N times, for sites where tasks fail on cluster
+        # events: one task exiting 1 with no traceback stopped a 16-task run while nobody watched
+        # (field feedback #63). Off by default; each retry is in trace.tsv and the receipt says so.
+        retries = site.get('task_retries') or '0'
+        if not retries.isdigit():
+            parser.error('task_retries must be a whole number')
+        strategy = ('"terminate"' if retries == '0'
+                    else f"{{ task.attempt <= {int(retries)} ? 'retry' : 'terminate' }}")
+        lines = [f'process.executor = {literal(executor)}', f'process.errorStrategy = {strategy}',
+                 f'process.maxRetries = {int(retries)}', 'tower.enabled = false', 'wave.enabled = false',
                  f'process.container = {{ {container} }}' if images else f'process.container = {literal(image)}',
                  'singularity.enabled = true',
                  f"singularity.autoMounts = {'false' if sealed and not unsealed else 'true'}",
@@ -409,6 +441,8 @@ def run():
             record['input_checks'] = checked
         if pinned_changed and policy != 'off':
             record['scripts_changed_since_freeze'] = pinned_changed
+        if retries != '0':
+            record['task_retries'] = int(retries)
         if images:
             record['images'] = images
         if gpu:
@@ -448,6 +482,9 @@ def run():
         if received:
             record['signal'] = received[0].name
             returncode = returncode or 128 + received[0].value
+        hook = args.on_exit or site.get('on_exit')
+        if hook:
+            record['on_exit'] = notify(hook, record, attempt, name, iteration, root)
         receipt.write_text(json.dumps(record, indent=2) + '\n')
         print(attempt)
         print(f'arh: Nextflow exit={record["exit_code"]}; trace and logs: {attempt}'

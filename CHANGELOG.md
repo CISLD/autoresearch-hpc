@@ -41,6 +41,21 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   login shows before an iteration needs its review (#54).
 - **`ask_max_predeclaration_bytes`** gives the frozen pre-declaration a cap of its own, so a
   thorough plan no longer squeezes the report and the note (#82, #89).
+- **A run that ends badly with nobody watching is reported and can notify someone.** Two detached
+  runs failed on a cluster event while their session sat at a usage limit and stayed failed for
+  hours (#61, #63). `arh status --running` now lists runs of the last seven days that failed or
+  whose arh process died, and `on_exit` (`site.md`) or `arh submit --on-exit CMD` runs a command
+  with `ARH_RUN_EXIT`, `ARH_RUN_NAME`, `ARH_RUN_ATTEMPT` and `ARH_RUN_OWNER` when Nextflow exits.
+  `task_retries = N` retries a failed task (off by default; recorded in the receipt). The detached
+  log names the attempt directory and the live log (#71).
+- **STARVED runs.** On Slurm, `arh status --running` counts each live run's running and pending
+  jobs by their work directory and marks a run STARVED when its tasks wait and none has started or
+  finished for `starve_hours` (default 6). One iteration's tasks waited 3.5 days behind another's
+  while its driver kept logging (#69).
+- **The report-number check reads summaries first.** It read `results/` in path order and spent
+  its 64 MB on per-sample tables before the summary holding every reported number (#70). Files
+  named by `report_numbers_files` (`project.md`) come first, then files the report names, then the
+  rest smallest first, and hitting the budget is reported.
 
 ### Changed (external review of v0.3.0)
 - **An `UNSOUND` verdict no longer concludes an iteration by itself.** v0.3.0 accepted

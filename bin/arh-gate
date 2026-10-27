@@ -239,7 +239,7 @@ case "$sub" in
       # computed in the prose that belong in a results file (report_numbers = warn | require | off).
       numbers=$(arh_config_get "$ARH_PROJ" report_numbers warn)
       if [ "$numbers" != off ]; then
-        unmatched=$(python3 "$ARH_HOME/lib/report_numbers.py" check "$dir" "$report")
+        unmatched=$(python3 "$ARH_HOME/lib/report_numbers.py" check "$dir" "$report" "$(arh_config_get "$ARH_PROJ" report_numbers_files "")")
         if [ -n "$unmatched" ]; then
           count=$(printf '%s\n' "$unmatched" | grep -c .)
           if [ "$numbers" = require ]; then arh_fail "$count number(s) in the report match no file under results/"; fails=$((fails+1))

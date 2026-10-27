@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import signal
 import socket
 import subprocess
@@ -2062,6 +2063,59 @@ elif args[0] == 'list':
         self.assertEqual(record['signal'], 'SIGTERM')
         self.assertIn('nothing to stop', self.call('stop', '--all').stdout)
         self.call('stop', good=False)
+
+    @needs_site
+    def test_a_run_that_fails_unwatched_is_reported_and_notified(self):
+        # Detached runs failed at 07:30 while their session sat at a usage limit and stayed failed for
+        # hours; the detached log held only arh's warnings (field feedback #61, #63, #71).
+        hook = self.root / 'hook.sh'
+        hook.write_text('echo "$ARH_RUN_NAME $ARH_RUN_EXIT $ARH_RUN_OWNER" >> "$ARH_ROOT/notified.txt"\n')
+        self.set_config('site.md', on_exit=f'bash {hook}')
+        script = self.it / 'scripts/it1_01_bad.sh'; script.write_text('exit 3\n')
+        out = self.call('submit', str(script), '-n', 'bad', '--detach', timeout=300)
+        self.call('wait', '-n', '1', '--timeout', '600', timeout=700)
+        log = Path(out.stdout.strip().splitlines()[-1])
+        self.assertIn('live log', log.read_text())
+        self.assertEqual((self.root / 'notified.txt').read_text().split()[:3], ['bad', '1', 'iterations/iteration1'])
+        record = json.loads(next((self.it / 'logs/nextflow/bad').glob('attempt-*/run.json')).read_text())
+        self.assertEqual(record['on_exit']['exit_code'], 0)
+        running = self.call('status', '--running').stdout
+        self.assertIn('submission bad FAILED, exit 1', running)
+
+    @needs_site
+    def test_task_retries_are_opt_in_and_recorded(self):
+        flag = self.it / 'results/flaky.flag'
+        wf = self.nf('it1_01_flaky.nf', 'process F {\n    output:\n    stdout\n    script:\n    """\n'
+                     f'    if [ -e {flag} ]; then echo ok; else touch {flag}; exit 1; fi\n    """\n}}\n'
+                     'workflow {\n    F() | view\n}\n')
+        self.call('submit', str(wf), '-n', 'flaky', good=False, timeout=600)
+        flag.unlink()
+        self.set_config('site.md', task_retries='1')
+        self.call('submit', str(wf), '-n', 'flaky2', timeout=600)
+        record = json.loads(next((self.it / 'logs/nextflow/flaky2').glob('attempt-*/run.json')).read_text())
+        self.assertEqual(record['task_retries'], 1)
+
+    def test_number_check_reads_named_summaries_before_bulk_tables(self):
+        # A 64 MB budget went on 89 MB of per-sample tables in path order, and the summary holding every
+        # reported number was never read (field feedback #70).
+        bulk = self.it / 'results/emit'
+        bulk.mkdir(parents=True)
+        for i in range(6):
+            (bulk / f'sample{i}.tsv').write_text('1.0\n' * (3 * 1024 * 1024))
+        (self.it / 'results/gather').mkdir()
+        (self.it / 'results/gather/results.json').write_text('{"f1": 0.80828}\n')
+        self.report.write_text(self.report.read_text() + '\nF1 0.8083.\n')
+
+        def check(*globs):
+            return subprocess.run([sys.executable, str(ROOT / 'lib/report_numbers.py'), 'check', str(self.it),
+                                   str(self.report), *globs], capture_output=True, text=True, check=True)
+        done = check()                      # smallest first: the summary is read before the tables
+        self.assertEqual(done.stdout, '')
+        self.assertIn('stopped at', done.stderr)
+        big = self.it / 'results/gather/results.json'
+        big.write_text('{"pad": [' + '1.5,' * (4 * 1024 * 1024) + '0.80828]}\n')
+        self.assertIn('0.8083', check().stdout)    # now the largest file: the budget runs out first
+        self.assertEqual(check('gather/*.json').stdout, '')
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

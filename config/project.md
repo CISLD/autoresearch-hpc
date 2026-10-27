@@ -59,7 +59,10 @@ claimed after it.
 `report_numbers` decides what the gate does with numbers in the report (with a
 decimal point or a percent sign) that match no file under `results/` at the
 precision written: `warn` lists them, `require` fails, `off` skips. Numbers that
-appear in the pre-declaration and the Cross-check section are not checked.
+appear in the pre-declaration and the Cross-check section are not checked. The
+check reads at most 64 MB of results: files matching `report_numbers_files`
+(globs under the iteration's `results/`, e.g. `*/summary.json`) first, then files
+the report names, then the rest smallest first.
 
 ## Pre-declaration
 
@@ -100,5 +103,6 @@ task_project_access = ro
 # Scripts already in scripts/ when the plan is frozen are pinned with it. A run after one of them
 # changed: warn (reported, and recorded in the run receipt), refuse, or off.
 frozen_scripts    = warn
+report_numbers_files =
 freeze_anchor     =
 ```

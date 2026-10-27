@@ -84,6 +84,15 @@ nextflow_version = 26.04.6
 # HTML report and timeline per submission: html, gzip or none. They are ~1.9 MB a run;
 # trace.tsv and the run receipt are always kept.
 nextflow_reports = html
+# Run when Nextflow exits, attached or detached, with ARH_RUN_EXIT, ARH_RUN_NAME, ARH_RUN_ATTEMPT,
+# ARH_RUN_OWNER and ARH_RUN_SIGNAL set, e.g. a mail or a file a cron watcher reads. Empty: nothing.
+on_exit =
+# Retry a failed task up to this many times (0: the first failure stops the run). For sites where
+# tasks fail on cluster events; every retry stays in trace.tsv and the receipt records the setting.
+task_retries = 0
+# arh status --running marks a run STARVED when its tasks wait in the queue and none has started or
+# finished for this many hours.
+starve_hours = 6
 
 # --- SLURM ---------------------------------------------------------------
 slurm_partition   =

@@ -2,8 +2,10 @@
 # Nextflow owns scheduling; this adapter checks the research plan.
 set -euo pipefail
 . "${ARH_HOME:?}/lib/common.sh"
-case "${1-}" in -h|--help) echo 'usage: arh submit WORKFLOW.nf [-n NAME] [--params FILE] [--resume] [-w] [--lint] [--detach]
---detach: return once the run holds its launch lock; follow it with arh wait -n N or arh status --running.'; exit 0 ;; esac
+case "${1-}" in -h|--help) echo 'usage: arh submit WORKFLOW.nf [-n NAME] [--params FILE] [--resume] [-w] [--lint] [--detach] [--on-exit CMD]
+--detach: return once the run holds its launch lock; follow it with arh wait -n N or arh status --running.
+--on-exit: run CMD when Nextflow exits, with ARH_RUN_EXIT, ARH_RUN_NAME, ARH_RUN_ATTEMPT and ARH_RUN_OWNER
+set (site.md on_exit does the same for every run).'; exit 0 ;; esac
 arh_load_project
 [ "${ARH_IN_RUNTIME:-0}" != 1 ] || arh_die "run the Nextflow controller on the host for scheduler access"
 ARH_LEASE_AGENT=$(arh_agent_name) exec python3 "$ARH_HOME/lib/nextflow.py" "$@"
