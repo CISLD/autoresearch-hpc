@@ -2010,7 +2010,8 @@ elif args[0] == 'list':
         env = dict(self.env, ARH_AGENT='claude'); env.pop('ARH_SESSION', None)
         run = lambda *a: subprocess.run([str(ROOT / 'bin/arh'), *a], env=env, cwd=self.root,  # noqa: E731
                                         capture_output=True, text=True)
-        run('note', '-n', '1', 'held by claude')
+        # setUp's claim records whoever runs the suite (USER on CI, claude inside Claude Code): take it as claude.
+        run('lease', 'take', '-n', '1', '--reason', 'the test makes claude the holder')
         lease = json.loads((self.it / 'metadata/lease.json').read_text())
         self.assertEqual(lease['holder']['agent'], 'claude')
         self.assertIn('cannot tell these agents apart', run('claim', '-t', 'second').stderr)
