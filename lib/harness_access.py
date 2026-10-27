@@ -97,6 +97,8 @@ def check(root, web, inputs):
         if web == 'deny':
             out += [f'FAIL|opencode.json leaves {t} on although web_access = deny'
                     for t in ('webfetch', 'websearch') if perm.get(t) != 'deny']
+        out += [f'WARN|opencode.json does not deny reading the sealed input {p}'
+                for p in sealed(root) if allowed.get(p + '/**') != 'deny']
     held = sealed(root)
     if (root / '.claude').is_dir():
         perm = load(root / '.claude/settings.json').get('permissions', {})

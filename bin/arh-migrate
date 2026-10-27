@@ -2,20 +2,23 @@
 # Bring a study up to this framework: a 0.1 layout (state in .dl/) moves to .arh/, and the study's
 # copies of the agent contract (AGENTS.md) and skills/ are refreshed. Dry run by default.
 #
-#   arh migrate [DIR]           list every change; nothing is written
-#   arh migrate [DIR] --apply   write a backup, apply the changes, then run the checks
+#   arh migrate [DIR]                        list every change; nothing is written
+#   arh migrate [DIR] --apply [--no-checks]  write a backup, apply the changes, then run the checks
 #
 # This is the only command that knows the 0.1 names. Iteration and verification files are never
-# touched, and re-running it on an up-to-date study changes nothing.
+# touched, and re-running it on an up-to-date study changes nothing. Text the study added to its
+# AGENTS.md is kept in the file's arh:project block; each applied migration is logged in
+# .arh/migrations.log before the checks run.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 . "${ARH_HOME:?}/lib/common.sh"
 
-apply=0; target=""
+apply=0; target=""; checks=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --apply) apply=1; shift ;;
-    -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --no-checks) checks=0; shift ;;
+    -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) arh_die "unexpected option: $1" ;;
     *) [ -z "$target" ] || arh_die "give one study directory"; target="$1"; shift ;;
   esac
@@ -35,16 +38,18 @@ fi
 
 protocol=$(sed -n 's/^# The AutoResearch HPC protocol, v//p' "$ARH_HOME/PROTOCOL.md")
 printf 'arh migrate: %s (%s)\n' "$target" "$([ "$state" = legacy ] && echo '0.1 layout' || echo 'state already in .arh/')"
+fw_commit=$(git -C "$ARH_HOME" rev-parse --short HEAD 2>/dev/null || true)
 python3 - "$target" "$apply" "$ARH_HOME" "$protocol" "$(cat "$ARH_HOME/VERSION" 2>/dev/null || echo unknown)" \
-  "$state" "$(arh_now)" <<'PY'
+  "$state" "$(arh_now)" "$fw_commit" <<'PY'
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tarfile
 from pathlib import Path
 
-root, apply, home, protocol, fw_version, state, now = sys.argv[1:8]
+root, apply, home, protocol, fw_version, state, now, fw_commit = sys.argv[1:9]
 root, home, apply = Path(root), Path(home), apply == '1'
 state_dir = root / ('.arh' if state == 'migrated' else '.dl')
 cfg = state_dir / 'config'
@@ -99,10 +104,54 @@ if ledger.exists():
     n = re.sub(r'<!--[ \t]*dl:status:end[ \t]*-->', '<!-- arh:status:end -->', n)
     plan(ledger, n, 'status markers (the rest of the record is left as written)')
 agents = root / 'AGENTS.md'
+PROJECT_BLOCK = re.compile(r'(<!-- arh:project:begin[^>]*-->\n?)(.*?)(<!-- arh:project:end -->)', re.S)
+
+
+def framework_lines():
+    """Every line any version of the framework's AGENTS.md has carried, when ARH_HOME is a git
+    checkout; otherwise the current version's. A line outside this set was written by the study."""
+    seen = set((home / 'AGENTS.md').read_text().splitlines())
+    try:
+        revs = subprocess.run(['git', '-C', str(home), 'log', '--format=%H', '--', 'AGENTS.md'],
+                              capture_output=True, text=True, timeout=30).stdout.split()
+        for rev in revs:
+            old = subprocess.run(['git', '-C', str(home), 'show', f'{rev}:AGENTS.md'],
+                                 capture_output=True, text=True, timeout=30)
+            seen.update(old.stdout.splitlines())
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return seen
+
+
 if agents.is_file():
-    legacy = agents.read_text().startswith('# Automated discovery loop — agent contract')
-    plan(agents, (home / 'AGENTS.md').read_text(), '0.1 agent contract replaced (the old one is in the backup)'
-         if legacy else "agent contract refreshed from the framework's (the old one is in the backup)")
+    current = agents.read_text()
+    legacy = current.startswith('# Automated discovery loop — agent contract')
+    fresh = (home / 'AGENTS.md').read_text()
+    # A study's own block was dropped with the rest of its contract (field feedback #42). Text in the
+    # arh:project block is kept as it is; other lines no framework version ever had are moved into it.
+    found = PROJECT_BLOCK.search(current)
+    kept = found.group(2) if found else ''
+    outside = PROJECT_BLOCK.sub('', current) if found else current
+    known = framework_lines() if not legacy else set()
+    own, gap = [], False
+    for line in outside.splitlines():
+        if line.strip() and line not in known and not line.startswith('<!-- arh:project'):
+            if gap and own:
+                own.append('')
+            own.append(line); gap = False
+        else:
+            gap = True
+    if own:
+        kept = (kept.rstrip('\n') + '\n\n' if kept.strip() else '') + '\n'.join(own) + '\n'
+        changes.append(f'AGENTS.md: {len([l for l in own if l])} line(s) the framework never had are kept in the '
+                       'arh:project block at the end: ' + ' | '.join(l[:60] for l in own if l)[:240])
+    if PROJECT_BLOCK.search(fresh):
+        fresh = PROJECT_BLOCK.sub(lambda m: m.group(1) + kept + m.group(3), fresh, count=1)
+    elif kept.strip():
+        fresh = fresh.rstrip('\n') + '\n\n<!-- arh:project:begin -->\n' + kept + '<!-- arh:project:end -->\n'
+    plan(agents, fresh, '0.1 agent contract replaced (the old one is in the backup)'
+         if legacy else "agent contract refreshed from the framework's (the old one is in the backup)"
+         + ('; the arh:project block is kept' if kept.strip() else ''))
 # Agents read the study's own copies, so a framework update reaches them only through these files.
 # Skills the study added itself are left alone.
 stale_skills = [(src, root / 'skills' / src.relative_to(home / 'skills'))
@@ -115,12 +164,20 @@ if stale_skills:
 version = state_dir / 'VERSION'
 text = version.read_text() if version.exists() else ''
 found = re.search(r'(?m)^protocol[ \t]*=[ \t]*(\S+)', text)
-if not found or found.group(1) != protocol:
+# The framework build is recorded too: 0.2.0 -> 0.3.0 kept protocol 0.2.0, so the upgrade left no
+# trace (field feedback #43).
+framework = f'autoresearch-hpc {fw_version}' + (f' ({fw_commit})' if fw_commit else '')
+was = re.search(r'(?m)^framework[ \t]*=[ \t]*(.+)$', text)
+if not found or found.group(1) != protocol or not was or was.group(1).strip() != framework:
     old = found.group(1) if found else 'unknown'
     new = re.sub(r'(?m)^protocol[ \t]*=.*$', f'protocol = {protocol}', text) if found else f'protocol = {protocol}\n{text}'
-    new = new.rstrip('\n') + f'\nmigrated = {now} from protocol {old} by arh migrate (autoresearch-hpc {fw_version})\n'
+    new = re.sub(r'(?m)^framework[ \t]*=.*$', f'framework = {framework}', new) if was \
+        else new.replace(f'protocol = {protocol}\n', f'protocol = {protocol}\nframework = {framework}\n', 1)
+    new = new.rstrip('\n') + (f'\nmigrated = {now} from protocol {old}'
+                              + (f" ({was.group(1).strip()})" if was else '') + f' by arh migrate ({framework})\n')
     rewrites[version] = new
-    changes.append(f'{version.relative_to(root)}: protocol {old} -> {protocol}')
+    changes.append(f'{version.relative_to(root)}: protocol {old} -> {protocol}, framework '
+                   + (was.group(1).strip() if was else 'not recorded') + f' -> {framework}')
 
 # The freeze journal (.arh/freezes.tsv) records each freeze once, so a deleted freeze file cannot
 # make a plan freezable again. Studies frozen before it existed get one row per frozen iteration,
@@ -133,6 +190,23 @@ unjournalled = [d.name for d in sorted(iters.glob('iteration*'))
                 if (d / 'PREDECLARATION.sha256').is_file() and d.name[9:] not in journal and not record.journal_era(d)]
 if unjournalled:
     changes.append(f'.arh/freezes.tsv: freeze journal rows backfilled for {len(unjournalled)} frozen iteration(s)')
+
+# Sealed-input read denials and declared-input access are written into the harness configurations
+# by harness/install.sh, which migrate did not run (field feedback #48): refresh the installed ones.
+from harness_access import check as access_check  # noqa: E402
+access = []
+if state == 'migrated':
+    reach = config_value(cfg / 'project.md', 'immutable_inputs', '').split()
+    shared = config_value(cfg / 'site.md', 'site_gotchas', '')
+    if shared:
+        reach.append(os.path.dirname(shared))
+    web = config_value(cfg / 'harnesses.md', 'web_access', 'allow')
+    installed = [h for h, marker in (('claude', root / '.claude'), ('opencode', root / 'opencode.json'))
+                 if marker.exists()]
+    if installed and access_check(root, web, reach):
+        access = installed
+        changes.append('harness access: declared inputs, sealed-input denials and web tools refreshed for '
+                       + ', '.join(installed))
 
 if not changes:
     print('  nothing to do: the study is already on the current layout')
@@ -162,14 +236,26 @@ for src, dst in stale_skills:
     shutil.copy2(src, dst)
 if unjournalled:
     record.backfill(root, iters, now)
-print(f'\nbackup: {backup.relative_to(root)}')
+if access:
+    from harness_access import write as access_write  # noqa: E402
+    for h in access:
+        access_write(root, h, web, reach)
+# Logged before the checks: a migrate killed while they ran lost its whole report (#55).
+with open(root / '.arh/migrations.log', 'a') as log:
+    log.write(f'## {now} arh migrate --apply ({framework})\n' + ''.join(f'- {c}\n' for c in changes)
+              + f'- backup: {backup.relative_to(root)}\n\n')
+print(f'\nbackup: {backup.relative_to(root)}; this list is in .arh/migrations.log')
 print('next: arh ledger render && arh ledger check'
       + ('; replace dl and DL_* in your own scripts by hand' if state == 'legacy' else ''))
 PY
-[ "$apply" = 1 ] || exit 0
-printf '\nchecks:\n'
+[ "$apply" = 1 ] && [ "$checks" = 1 ] || exit 0
+# status and ledger check hash every iteration: 10–25 minutes on CephFS for 54 iterations, with no
+# output until the end (field feedback #44). Say what runs, and how long it took.
+printf '\nchecks (arh status and arh ledger check hash every iteration; on a large study they take minutes):\n'
 for check in doctor status 'ledger check'; do
+  printf '  ...  arh %s\r' "$check"
+  started=$(date +%s)
   # shellcheck disable=SC2086  # "ledger check" is two words on purpose
-  if ARH_PROJECT="$target" "$ARH_HOME/bin/arh" $check >/dev/null 2>&1; then arh_ok "arh $check"
+  if ARH_PROJECT="$target" "$ARH_HOME/bin/arh" $check >/dev/null 2>&1; then arh_ok "arh $check ($(( $(date +%s) - started )) s)"
   else arh_fail "arh $check (run it to see why; arh ledger render usually has to come first)"; fi
 done

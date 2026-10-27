@@ -366,3 +366,11 @@ Explicit user requirements, validation, immutable-input protection and every
 research gate above take precedence over brevity. “Stop ponytail” or “normal
 mode” disables this coding preference for the session; it does not change the
 research protocol.
+
+## Project-specific instructions
+
+Instructions for this study only go between the two markers below. `arh migrate`
+refreshes the rest of this file from the framework and keeps what is between them.
+
+<!-- arh:project:begin -->
+<!-- arh:project:end -->

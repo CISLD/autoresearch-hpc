@@ -1463,18 +1463,46 @@ print('PROPOSAL: '+request.read_text().splitlines()[0])
     def test_migrate_refreshes_agent_contract_and_skills(self):
         # Agents read the study's copies, so framework fixes to AGENTS.md never reached them (2026-09-15).
         agents, skill = self.root / 'AGENTS.md', self.root / 'skills/iterate/SKILL.md'
-        agents.write_text('# stale contract\n'); skill.unlink()
+        agents.write_text((ROOT / 'AGENTS.md').read_text().replace('## Before you finish\n', '')); skill.unlink()
+        stale = agents.read_text()
         own = self.root / 'skills/local/SKILL.md'; own.parent.mkdir(); own.write_text('project skill\n')
         self.assertIn("differ from the framework's", self.call('doctor', good=None).stderr)
         migrate = lambda *a: self.call('migrate', str(self.root), *a)  # noqa: E731
         self.assertIn('agent contract refreshed', migrate().stdout)
-        self.assertEqual(agents.read_text(), '# stale contract\n')     # a dry run writes nothing
+        self.assertEqual(agents.read_text(), stale)     # a dry run writes nothing
         migrate('--apply')
         self.assertEqual(agents.read_text(), (ROOT / 'AGENTS.md').read_text())
         self.assertEqual(skill.read_text(), (ROOT / 'skills/iterate/SKILL.md').read_text())
         self.assertEqual(own.read_text(), 'project skill\n')
         self.assertTrue((self.root / 'CLAUDE.md').is_symlink())
         self.assertIn('nothing to do', migrate().stdout)
+
+    def test_migrate_keeps_the_studys_own_contract_text_and_logs_the_upgrade(self):
+        # Migrate replaced a study's AGENTS.md wholesale and dropped its project block (field feedback
+        # #42); a 0.2.0 -> 0.3.0 upgrade left no record (#43); a migrate killed during its checks lost
+        # its report (#55); sealed-input denials were not refreshed (#48).
+        agents = self.root / 'AGENTS.md'
+        text = agents.read_text().replace('## Before you finish\n', '## Before you finish\n\nDirectives live in '
+                                          'VALIDATION_PROTOCOL.md; append ARH feedback under flock.\n')
+        text = text.replace('<!-- arh:project:begin -->\n', '<!-- arh:project:begin -->\nHG002 is held out.\n')
+        agents.write_text(text)
+        (self.root / 'opencode.json').write_text('{}\n')
+        held = self.root / 'heldout'; held.mkdir()
+        self.set_config('project.md', sealed_inputs=str(held))
+        dry = self.call('migrate', str(self.root)).stdout
+        self.assertIn('kept in the arh:project block', dry)
+        self.assertIn('harness access', dry)
+        self.call('migrate', str(self.root), '--apply', '--no-checks')
+        after = agents.read_text()
+        block = after[after.index('<!-- arh:project:begin'):]
+        self.assertIn('HG002 is held out.', block)
+        self.assertIn('Directives live in VALIDATION_PROTOCOL.md', block)
+        self.assertNotIn('Directives live in', after[:after.index('<!-- arh:project:begin')])
+        self.assertIn(str(held), json.loads((self.root / 'opencode.json').read_text())['permission']['external_directory'])
+        self.assertRegex((self.root / '.arh/VERSION').read_text(), r'(?m)^framework = autoresearch-hpc ')
+        self.assertIn('kept in the arh:project block', (self.root / '.arh/migrations.log').read_text())
+        self.assertIn('nothing to do', self.call('migrate', str(self.root)).stdout)
+        self.assertNotIn("differ from the framework's", self.call('doctor', good=None).stderr)
 
     def test_env_cache_builds_once_for_many_projects(self):
         # Every study built its own ~1.5 GB of environments (2026-09-14).

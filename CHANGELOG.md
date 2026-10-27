@@ -52,6 +52,17 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   jobs by their work directory and marks a run STARVED when its tasks wait and none has started or
   finished for `starve_hours` (default 6). One iteration's tasks waited 3.5 days behind another's
   while its driver kept logging (#69).
+- **`arh migrate` keeps what the study wrote into its `AGENTS.md`.** It replaced the file
+  wholesale and a study's directives pointer and feedback rule survived only in the backup (#42).
+  The contract now ends with an `arh:project` block that migrate keeps; lines outside it that no
+  version of the framework's contract ever had (read from the framework's git history) are moved
+  into it, and the dry run lists them. `arh doctor` no longer counts the block as drift.
+- **`arh migrate` records the framework build and logs before checking.** A 0.2.0 → 0.3.0 upgrade
+  kept protocol 0.2.0 and left no record (#43): `.arh/VERSION` now carries `framework =` and each
+  migration adds a line. The change list is appended to `.arh/migrations.log` before the checks,
+  which a killed migrate used to lose (#55); the checks print what runs and how long it took (#44),
+  and `--no-checks` skips them. Installed harness configurations (Claude Code, OpenCode) get their
+  declared-input access, sealed-input denials and web policy refreshed (#48).
 - **The report-number check reads summaries first.** It read `results/` in path order and spent
   its 64 MB on per-sample tables before the summary holding every reported number (#70). Files
   named by `report_numbers_files` (`project.md`) come first, then files the report names, then the
