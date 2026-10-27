@@ -160,30 +160,17 @@ def provider_error(path):
 def budget():
     directory, prompt, command, role, harness, pf, vf, max_input, max_rounds, note, dry = sys.argv[2:]
     size = Path(prompt).stat().st_size
-    d = Path(directory)
-    # ask_max_predeclaration_bytes: the frozen pre-declaration gets a cap of its own and leaves
-    # ask_max_input_bytes to the report and the note. A 31.8 kB plan left a report three trims and
-    # a one-line note under one shared cap (field feedback #82, #89).
-    plan_cap = int(os.environ.get('ARH_ASK_MAX_PREDECLARATION') or 0)
-    plan_size = (d / 'README.md').stat().st_size if (d / 'README.md').exists() else 0
-    if plan_cap and plan_size > plan_cap:
-        sys.exit(f'the pre-declaration is {plan_size} bytes; ask_max_predeclaration_bytes is {plan_cap}')
-    counted = size - plan_size if plan_cap else size
-    if counted > int(max_input):
+    if size > int(max_input):
+        d = Path(directory)
         body = d / ('DAG.md' if role == 'reimplementer' else 'results/report/' + d.name + '_report.md')
         parts = [(name, p.stat().st_size) for name, p in (('pre-declaration', d / 'README.md'), (body.stem, body))
                  if p.exists()]
         parts.append(('role, instructions and note', size - sum(n for _, n in parts)))
-        if plan_cap:
-            parts = [part for part in parts if part[0] != 'pre-declaration']
-        sys.exit(f"review input is {counted} bytes ({', '.join(f'{name} {n}' for name, n in parts)}"
-                 + (f'; the pre-declaration, {plan_size} bytes, is counted against '
-                    f'ask_max_predeclaration_bytes' if plan_cap else '')
-                 + f"); ask_max_input_bytes is {max_input}. Shorten the "
-                 + ('report or note' if plan_cap else 'pre-declaration or report')
-                 + ", or raise ask_max_input_bytes"
-                 + ('' if plan_cap else ' (or set ask_max_predeclaration_bytes, which takes the frozen plan out of it)')
-                 + " in .arh/config/harnesses.md and give the reason to arh ask --terms-changed")
+        # The frozen plan cannot be shortened; a field study trimmed its report three times instead (#82, #89).
+        sys.exit(f"review input is {size} bytes ({', '.join(f'{name} {n}' for name, n in parts)}); "
+                 f"ask_max_input_bytes is {max_input}. Shorten the report or the note, or raise "
+                 "ask_max_input_bytes in .arh/config/harnesses.md and give the reason to arh ask "
+                 "--terms-changed")
     for record in valid_records(directory):
         data = json.loads(Path(record + '.json').read_text())
         if (Path(record).name.startswith('CROSSCHECK_' + role + '_' + harness + '_')
@@ -374,8 +361,11 @@ def probe():
     """One short call to a verifier, so an expired login or an exhausted quota shows up in `arh doctor
     --probe` and not when an iteration needs its review (field feedback #54, #75). Prints OK or the
     provider's own line; exit 0, 75 or 77 as for a review."""
-    command, cwd, seconds = sys.argv[2:5]
+    command, _, seconds = sys.argv[2:5]
     prompt = 'This is a connectivity check. Reply with the single word OK.'
+    # Run outside the project, so the CLI does not load the project's instructions for a one-word reply.
+    scratch = tempfile.TemporaryDirectory(prefix='arh-probe-')
+    cwd = scratch.name
     with tempfile.NamedTemporaryFile('w', suffix='.md', delete=False) as handle:
         handle.write(prompt)
     values = {'{prompt}': prompt, '{cwd}': cwd, '{usage}': os.devnull}
@@ -391,6 +381,7 @@ def probe():
         return 1
     finally:
         os.unlink(handle.name)
+        scratch.cleanup()
     provider = classify(out.stdout + '\n' + out.stderr, prompt)
     if provider:
         print(f'{provider[0]}: {provider[2]}')

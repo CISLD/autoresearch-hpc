@@ -8,7 +8,7 @@ set -uo pipefail
 : "${ARH_TEST_SITE:?Set ARH_TEST_SITE to a configured local Nextflow/Singularity site.md}"
 
 ARH_HOME=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-export ARH_HOME PATH="$ARH_HOME/bin:$PATH"
+export ARH_HOME PATH="$ARH_HOME/bin:$PATH" ARH_VERBOSE=1
 # A Slurm or PBS site.md made the suite submit real jobs and report failures that had nothing to do
 # with the protocol: 142 of 143 with a Slurm site.md, all 154 with a local one (2026-09-16).
 [ -f "$ARH_TEST_SITE" ] || { echo "ARH_TEST_SITE is not a file: $ARH_TEST_SITE" >&2; exit 2; }

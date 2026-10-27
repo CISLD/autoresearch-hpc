@@ -115,6 +115,8 @@ frozen_scripts    = warn
 # The operator's directives file (data locations, decisions, external findings), read by every
 # review and delegation. A study that keeps them elsewhere names that file here.
 directives        = DIRECTIVES.md
+# arh context (the session-start brief) stops at this many bytes.
+context_max_bytes = 48000
 report_numbers_files =
 freeze_anchor     =
 ```

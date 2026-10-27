@@ -12,6 +12,12 @@ and knows what is done, what is running and where to resume.
 
 ---
 
+## Current state
+
+<Kept current by whoever changes the state: what is concluded, what runs, what is
+blocked and what comes next, in a few lines. `arh context` prints this section and
+not the rest of the file, so a resuming session starts here. History goes below.>
+
 ## 1. The study in one box
 
 | Item | Value |

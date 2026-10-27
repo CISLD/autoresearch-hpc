@@ -1,8 +1,8 @@
 # You are the controller of iteration {N}
 
 The main controller of this AutoResearch HPC project dispatched iteration {N} to you. You own it
-until you finish; no other session changes it meanwhile. Read `AGENTS.md` (the agent contract),
-`PROGRESS.md`, `DIRECTIVES.md` and `GOTCHAS.md` first. The brief below says what the iteration is
+until you finish; no other session changes it meanwhile. Run `arh context` first (current state,
+directives in force, gotchas index) and `arh context -n {N}`. The brief below says what the iteration is
 to find out.
 
 1. Pre-declare, unless the context below says the declaration is already frozen:

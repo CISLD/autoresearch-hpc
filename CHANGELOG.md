@@ -10,6 +10,24 @@ Singularity with two producer accounts and two verifier families, and from an ex
 of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studies need
 `arh migrate --apply`, which starts the freeze journal.
 
+### Changed (token use, 2026-10-27; plan in design-notes/token-plan.md, reviewed by Codex)
+- **Sessions start from `arh context`, not from whole files.** The contract sent every session to
+  `PROGRESS.md`, `DIRECTIVES.md` and `GOTCHAS.md` in full: 329 kB in a 63-iteration field study,
+  growing with every iteration. `arh context` (no `-n`) prints `PROGRESS.md`'s `## Current state`,
+  the open iterations, the `## Current directives` in full (without that section, the directives
+  file is named as a required full read: directives are binding and are never cut or indexed),
+  and an index of `GOTCHAS.md` (heading, assertion, symptom). The templates gain both sections. On
+  the field study the brief is 8 kB.
+- **`AGENTS.md` is 5.4 kB (was 19.8 kB).** Workflow writing, held-out data, verification, running
+  unattended, delegation, dispatch and generators moved unchanged to `skills/iterate/reference.md`.
+  A session started by `arh` (review, replication, delegated task) is told to skip the start-up.
+  Ponytail is no longer a default coding skill and `harness/install.sh` no longer appends it.
+- **OpenCode no longer loads `PROGRESS.md` and `GOTCHAS.md` into every session**, reviews
+  included (`harness/opencode/opencode.json` named them as instructions).
+- **Reviews and delegations get the current directives**, when the file has that section.
+- **`arh gate` and `arh doctor` print problems and a count of passed checks**; `-v` (or
+  `ARH_VERBOSE=1`) lists every check. `arh doctor --probe` runs outside the project.
+
 ### Changed (external review of v0.3.0: the rest of its recommendation R5, and the S plan)
 - **Tasks cannot write the record.** With `task_project_access = ro` (`project.md`; the default
   for new projects, while projects without the key keep `rw`) the project is mounted read-only in
@@ -32,15 +50,13 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   (OpenCode: "This API key has expired") exited 1 and stopped the review, so `verifier_fallback`
   never ran (#75); a timeout spent a review round (#51). Both now exit 75, spend no round and try
   the fallback; the record keeps exit 124 for a timeout. `harness_<name>_timeout` gives a slow
-  harness its own bound, and `ask_serialize = true` lets one review per verifier harness run at a
-  time across the project's sessions.
+  harness its own bound.
 - **"provider said" quotes the provider.** The line was taken from the first match in the
   output and stderr, which `codex exec` fills with the prompt, so a report that mentioned a usage
   limit was quoted as the refusal (#76). Prompt lines are skipped and the last match wins.
 - **`arh doctor --probe`** makes one short call to the verifier and each fallback, so an expired
   login shows before an iteration needs its review (#54).
-- **`ask_max_predeclaration_bytes`** gives the frozen pre-declaration a cap of its own, so a
-  thorough plan no longer squeezes the report and the note (#82, #89).
+- **A size refusal no longer asks to shorten the frozen plan**, which cannot be shortened (#82, #89).
 - **A run that ends badly with nobody watching is reported and can notify someone.** Two detached
   runs failed on a cluster event while their session sat at a usage limit and stayed failed for
   hours (#61, #63). `arh status --running` now lists runs of the last seven days that failed or
@@ -57,11 +73,9 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   the re-rendered ledger were created by `mkdtemp`/`mktemp` as 0700/0600, so a second account
   sharing the project through a group could not read `run.json` or `nextflow.log` (#88). They now
   get the mode the umask gives (a directory keeps its setgid bit); the ledger keeps its own mode.
-- **`arh migrate` keeps what the study wrote into its `AGENTS.md`.** It replaced the file
-  wholesale and a study's directives pointer and feedback rule survived only in the backup (#42).
-  The contract now ends with an `arh:project` block that migrate keeps; lines outside it that no
-  version of the framework's contract ever had (read from the framework's git history) are moved
-  into it, and the dry run lists them. `arh doctor` no longer counts the block as drift.
+- **`arh migrate` no longer drops a study's own `AGENTS.md` text** (#42). The contract ends with an
+  `arh:project` block that migrate carries over; a copy that is not a shipped version apart from that
+  block is left alone with a note (`--force` replaces it; the old one is in the backup).
 - **`arh migrate` records the framework build and logs before checking.** A 0.2.0 → 0.3.0 upgrade
   kept protocol 0.2.0 and left no record (#43): `.arh/VERSION` now carries `framework =` and each
   migration adds a line. The change list is appended to `.arh/migrations.log` before the checks,

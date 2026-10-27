@@ -4,7 +4,7 @@ set -euo pipefail
 . "${ARH_HOME:?}/lib/common.sh"
 smoke=""; probe=0
 case "${1-}" in
-  --help|-h) echo 'usage: arh doctor [--smoke [gpu]] [--probe]
+  --help|-h) echo 'usage: arh doctor [--smoke [gpu]] [--probe] [-v]
 --smoke runs one task through the configured scheduler and task image and checks what it can see:
 the task environment, a writable project, read-only immutable inputs, hidden sealed inputs, and with
 gpu a GPU in a task labelled gpu. It waits for the scheduler.
@@ -13,6 +13,8 @@ used-up quota or a missing CLI shows before an iteration needs its review. It is
   --smoke) smoke=cpu; [ "${2-}" != gpu ] || smoke=gpu ;;
   --probe) probe=1 ;;
 esac
+case " $* " in *" -v "*|*" --verbose "*) ARH_VERBOSE=1 ;; esac
+[ "${ARH_VERBOSE:-0}" = 1 ] || ARH_QUIET_OK=1
 warn=0
 printf 'AutoResearch HPC  ARH_HOME=%s\n\n' "$ARH_HOME"
 
@@ -318,5 +320,6 @@ PY
 fi
 
 printf '\n'
+arh_ok_summary
 [ "$warn" -gt 0 ] && { printf '%s setup problem(s) found. Fix the FAIL items above and rerun `arh doctor`.\n' "$warn"; exit 1; }
 printf 'Ready. Next: arh claim -t "your first question"\n'

@@ -197,7 +197,15 @@ else
   printf 'Project root: %s\nIteration: %s\nDirectory: %s\n\n' "$ARH_ROOT" "$n" "$dir"
   printf 'Standing rules every conclusion inherits are in %s/rules/.\n' "$ARH_ROOT"
   printf 'Recorded silent failure modes are in %s/GOTCHAS.md.\n' "$ARH_ROOT"
-  [ ! -f "$ARH_DIRECTIVES" ] || printf 'Operator directives, data locations and external findings the work must follow are in\n%s; check the work against them.\n' "$ARH_DIRECTIVES"
+  if [ -f "$ARH_DIRECTIVES" ]; then
+    if python3 "$ARH_HOME/lib/brief.py" current-directives "$ARH_DIRECTIVES" >/dev/null; then
+      printf 'The operator directives in force are the "## Current directives" section of %s (its dated
+entries give each one'"'"'s source and data locations); check the work against them.
+' "$ARH_DIRECTIVES"
+    else printf 'Operator directives, data locations and external findings the work must follow are in
+%s; check the work against them.
+' "$ARH_DIRECTIVES"; fi
+  fi
   site_gotchas=$(arh_config_get "$ARH_SITE" site_gotchas "")
   [ -z "$site_gotchas" ] || [ ! -f "$site_gotchas" ] || printf 'Tool and site pitfalls shared across projects are in %s.\n' "$site_gotchas"
   printf '\n'
@@ -227,12 +235,9 @@ if ! arh_secret_scan "$extra" "${sources[@]}"; then
   arh_warn "the review request carries what looks like a credential (above); arh ask would refuse to send it"
 fi
 max_input=$(arh_config_get "$ARH_HARN" ask_max_input_bytes 48000)
-ARH_ASK_MAX_PREDECLARATION=$(arh_config_get "$ARH_HARN" ask_max_predeclaration_bytes "")
-export ARH_ASK_MAX_PREDECLARATION
 max_rounds=$(arh_config_get "$ARH_HARN" ask_max_rounds 2)
 if [ "$kind" = adjudication ]; then
   size=$(wc -c < "$prompt")
-  [ -z "$ARH_ASK_MAX_PREDECLARATION" ] || size=$((size - $(wc -c < "$dir/README.md")))
   [ "$size" -le "$max_input" ] || arh_die "the adjudication request is $size bytes; ask_max_input_bytes is $max_input.
        Shorten the rebuttal, or raise ask_max_input_bytes and give the reason to --terms-changed"
   [ "$dry" = 0 ] || { printf '# dry run — would invoke: %s\n\n' "$primary"; cat "$prompt"; exit 0; }
@@ -299,27 +304,12 @@ for h in $candidates; do
   # Parse quoted arguments without shell expansion; timeout is portable.
   # A harness can be slower than the rest: harness_<name>_timeout overrides ask_timeout for it.
   h_timeout=$(arh_config_get "$ARH_HARN" "harness_${h}_timeout" "$timeout_s")
-  # ask_serialize = true: one call per verifier harness at a time across the project's sessions, so
-  # two accounts' agents stop racing one provider quota (field feedback #51 serialised them by hand).
-  serial=()
-  if [ "$(arh_config_get "$ARH_HARN" ask_serialize false)" = true ]; then
-    if command -v flock >/dev/null 2>&1; then
-      mkdir -p "$ARH_STATE/locks"
-      serial=(flock -E 75 -w "$(arh_config_get "$ARH_HARN" ask_serialize_wait 3600)" "$ARH_STATE/locks/ask-$h.lock")
-      arh_info "waiting for any other review on '$h' in this project (ask_serialize = true)" >&2
-    else arh_warn "ask_serialize = true, but flock is not installed; asks are not serialised"; fi
-  fi
   set +e
-  ${serial[@]+"${serial[@]}"} python3 "$ARH_HOME/lib/harness.py" run "$cmd" "$prompt" "$ARH_ROOT" "$out" "$h_timeout" "$pfam" "$vfam" "$same_family" \
+  python3 "$ARH_HOME/lib/harness.py" run "$cmd" "$prompt" "$ARH_ROOT" "$out" "$h_timeout" "$pfam" "$vfam" "$same_family" \
     "$(arh_config_get "$ARH_HARN" ask_max_output_bytes 8000)" "$(arh_config_get "$ARH_HARN" "harness_${h}_version_cmd" "")" \
     "$strict_arg" "$terms_reason" "$judging"
   rc=$?
   set -e
-  if [ "${#serial[@]}" -gt 0 ] && [ "$rc" = 75 ] && [ ! -f "$out.json" ]; then   # the wait for another session's review ran out: no call was made
-    rm -f "$out" "$out.err"
-    arh_warn "verifier '$h' is still busy with another session's review after ask_serialize_wait"
-    tried="$tried $h"; continue
-  fi
   cp "$prompt" "$out.prompt"
   [ -s "$out.err" ] || rm -f "$out.err"
   tried="$tried $h"

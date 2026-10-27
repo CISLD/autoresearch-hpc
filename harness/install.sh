@@ -17,9 +17,6 @@ shared=$(arh_config_get "$target/.arh/config/site.md" site_gotchas "")
 
 mkdir -p "$target/skills"
 cp -r "$root/skills/." "$target/skills/"
-if ! grep -q '^## Default coding skill — Ponytail' "$target/AGENTS.md"; then
-  sed -n '/^## Default coding skill — Ponytail/,$p' "$root/AGENTS.md" >> "$target/AGENTS.md"
-fi
 
 for h in "${harnesses[@]}"; do
   case "$h" in

@@ -126,7 +126,13 @@ request="$run/request.md"; output="$run/artifacts"
   # learn what the operator decided. Gotchas can be long, so they are named rather than inlined.
   if [ -f "$ARH_DIRECTIVES" ]; then
     printf '\n## Operator directives and durable knowledge (%s; follow them)\n\n' "${ARH_DIRECTIVES##*/}"
-    cat "$ARH_DIRECTIVES"; printf '\n'
+    # The current-directives section when the file has one; the whole file is the fallback, because
+    # directives are binding and a delegation must not lose one.
+    if current=$(python3 "$ARH_HOME/lib/brief.py" current-directives "$ARH_DIRECTIVES"); then
+      printf '## Current directives\n\n%s\n' "$current"
+      printf '\n(The dated entries behind these are in %s.)\n' "$ARH_DIRECTIVES"
+    else cat "$ARH_DIRECTIVES"; fi
+    printf '\n'
   fi
   printf '\n## Known silent failure modes\n\nRead %s/GOTCHAS.md before writing code' "$ARH_ROOT"
   site_gotchas=$(arh_config_get "$ARH_SITE" site_gotchas "")

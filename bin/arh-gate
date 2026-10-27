@@ -5,7 +5,8 @@ set -euo pipefail
 . "${ARH_HOME:?}/lib/common.sh"
 
 sub="${1:-}"; shift || true
-case "$sub" in -h|--help|"") echo 'usage: arh gate {predeclare|results|rules} [-n N | FILE]
+case "$sub" in -h|--help|"") echo 'usage: arh gate {predeclare|results|rules} [-n N | FILE] [-v]
+-v: list every passing check, not only their count
 arh gate results -n N --skeleton: print a REVIEW_RESPONSE.md listing every numbered review finding'; exit 0 ;; esac
 
 n=""; file=""; skeleton=0
@@ -13,9 +14,12 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -n|--iteration) n="$2"; shift 2 ;;
     --skeleton) skeleton=1; shift ;;
+    -v|--verbose) ARH_VERBOSE=1; shift ;;
     *) file="$1"; shift ;;
   esac
 done
+[ "${ARH_VERBOSE:-0}" = 1 ] || ARH_QUIET_OK=1
+trap arh_ok_summary EXIT
 arh_load_project
 
 fails=0

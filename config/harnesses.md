@@ -120,19 +120,12 @@ verifier_fallback =
 ask_timeout = 900
 # A slower harness can have its own bound: harness_<name>_timeout = 1800. A timeout is recorded
 # as the verifier being unavailable, spends no review round and moves on to verifier_fallback.
-# One review per verifier harness at a time across the project's sessions (needs flock), so two
-# accounts' agents do not race one provider's quota; a call waits up to ask_serialize_wait seconds.
-ask_serialize = false
-ask_serialize_wait = 3600
 # Delegations fall back to ask_timeout when delegate_timeout is unset.
 delegate_timeout =
 delegate_max_output_bytes = 262144
 # One real iteration is a frozen pre-declaration (~16 kB) plus a report (~13 kB) plus the role
 # prompt: ~30 kB. 24000 was too small to send the artefact under review (2026-09-16).
 ask_max_input_bytes = 48000
-# When set, the frozen pre-declaration is counted against this cap instead, and
-# ask_max_input_bytes covers the report, the role prompt and the note.
-ask_max_predeclaration_bytes =
 ask_max_output_bytes = 8000
 ask_output_words = 500
 ask_max_rounds = 2

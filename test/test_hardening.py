@@ -37,7 +37,7 @@ class Protocol(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='arh-hardening-')
         self.root = Path(self.temp.name) / 'project'
-        self.env = dict(os.environ, ARH_HOME=str(ROOT), ARH_PROJECT=str(self.root),
+        self.env = dict(os.environ, ARH_HOME=str(ROOT), ARH_PROJECT=str(self.root), ARH_VERBOSE='1',
                         PATH=str(ROOT / 'bin') + os.pathsep + os.environ['PATH'])
         subprocess.run([str(ROOT / 'bin/arh'), 'init', str(self.root)], check=True, capture_output=True)
         if os.environ.get('ARH_TEST_SITE'):
@@ -1320,18 +1320,34 @@ print('PROPOSAL: '+request.read_text().splitlines()[0])
         self.assertIn('provider said: ERROR: rate limit reached', result.stderr)
         self.assertNotIn('usage limit of 10 jobs', result.stderr)
 
-    def test_predeclaration_can_have_its_own_input_cap(self):
-        # A frozen 31.8 kB plan left the report three trims and a one-line note (#82, #89).
-        size = len(self.call('ask', '-n', '1', '--dry-run').stdout.split('\n', 2)[2].encode())
-        plan = (self.it / 'README.md').stat().st_size
-        self.configure(extra_config=f'ask_max_input_bytes = {size - plan // 2}\n')
-        result = self.ask(good=False)
-        self.assertIn('ask_max_predeclaration_bytes', result.stderr)
+    def test_session_start_is_a_bounded_brief_and_gates_are_quiet(self):
+        # Every session read PROGRESS.md, DIRECTIVES.md and GOTCHAS.md whole: 329 kB in a 63-iteration study.
+        progress = self.root / 'PROGRESS.md'
+        progress.write_text(progress.read_text() + '\n' + 'History line.\n' * 5000)
+        brief = self.call('context').stdout
+        self.assertIn('## Current state', brief)
+        self.assertNotIn('History line.', brief)
+        self.assertIn('Gotchas index', brief)
+        self.assertIn('read ', brief)                           # the template's section is a placeholder: full read
+        directives = self.root / 'DIRECTIVES.md'
+        directives.write_text(directives.read_text().replace(
+            '## Current directives\n', '## Current directives\n\n- HG002 confirms, never selects (2026-10-05 entry).\n', 1))
+        self.assertIn('HG002 confirms, never selects', self.call('context').stdout)
+        directives.write_text('# Directives\n\n### 2026-10-05 HG002 confirms, never selects\n' + 'x\n' * 20000)
+        self.assertIn(f'read {directives} in full', self.call('context').stdout)   # binding: never cut or indexed
+        env = dict(self.env); env.pop('ARH_VERBOSE')
+        for argv in (['gate', 'results', '-n', '1'], ['doctor']):
+            out = subprocess.run([str(ROOT / 'bin/arh'), *argv], env=env, cwd=self.root, capture_output=True, text=True).stdout
+            passed = [line for line in out.splitlines() if line.startswith('  OK   ')]
+            self.assertEqual(len(passed), 1, out)
+            self.assertRegex(passed[0], r'OK   \d+ check\(s\) passed \(-v lists them\)')
+
+    def test_size_refusal_never_asks_to_shorten_the_frozen_plan(self):
+        # A frozen 31.8 kB plan cannot be shortened; the message sent agents to trim it (#82, #89).
+        self.configure(extra_config='ask_max_input_bytes = 1000\n')
+        err = self.ask(good=False).stderr
+        self.assertIn('Shorten the report or the note', err)
         self.assertFalse(list(self.it.glob('CROSSCHECK_*')))
-        self.configure(extra_config=f'ask_max_input_bytes = {size - plan // 2}\nask_max_predeclaration_bytes = {plan}\n')
-        self.ask(); self.gate()
-        self.configure(extra_config=f'ask_max_input_bytes = {size}\nask_max_predeclaration_bytes = {plan - 1}\n')
-        self.assertIn('ask_max_predeclaration_bytes is', self.call('ask', '-n', '1', '--note', 'again', good=False).stderr)
 
     def test_doctor_probe_names_an_expired_verifier_login(self):
         self.configure("print('Error: your session has expired. Please log in again.')")
@@ -1463,7 +1479,10 @@ print('PROPOSAL: '+request.read_text().splitlines()[0])
     def test_migrate_refreshes_agent_contract_and_skills(self):
         # Agents read the study's copies, so framework fixes to AGENTS.md never reached them (2026-09-15).
         agents, skill = self.root / 'AGENTS.md', self.root / 'skills/iterate/SKILL.md'
-        agents.write_text((ROOT / 'AGENTS.md').read_text().replace('## Before you finish\n', '')); skill.unlink()
+        shipped = subprocess.run(['git', '-C', str(ROOT), 'show', '77b7cfc:AGENTS.md'], capture_output=True, text=True)
+        if shipped.returncode:
+            self.skipTest('needs the framework git history (v0.3.0 AGENTS.md)')
+        agents.write_text(shipped.stdout); skill.unlink()                  # the v0.3.0 contract: a known base
         stale = agents.read_text()
         own = self.root / 'skills/local/SKILL.md'; own.parent.mkdir(); own.write_text('project skill\n')
         self.assertIn("differ from the framework's", self.call('doctor', good=None).stderr)
@@ -1482,25 +1501,23 @@ print('PROPOSAL: '+request.read_text().splitlines()[0])
         # #42); a 0.2.0 -> 0.3.0 upgrade left no record (#43); a migrate killed during its checks lost
         # its report (#55); sealed-input denials were not refreshed (#48).
         agents = self.root / 'AGENTS.md'
-        text = agents.read_text().replace('## Before you finish\n', '## Before you finish\n\nDirectives live in '
-                                          'VALIDATION_PROTOCOL.md; append ARH feedback under flock.\n')
-        text = text.replace('<!-- arh:project:begin -->\n', '<!-- arh:project:begin -->\nHG002 is held out.\n')
-        agents.write_text(text)
+        own = agents.read_text().replace('<!-- arh:project:begin -->\n', '<!-- arh:project:begin -->\nHG002 is held out.\n')
+        agents.write_text(own.replace('## Before you finish\n', '## Before you finish\n\nDirectives live elsewhere.\n'))
         (self.root / 'opencode.json').write_text('{}\n')
         held = self.root / 'heldout'; held.mkdir()
         self.set_config('project.md', sealed_inputs=str(held))
-        dry = self.call('migrate', str(self.root)).stdout
-        self.assertIn('kept in the arh:project block', dry)
-        self.assertIn('harness access', dry)
-        self.call('migrate', str(self.root), '--apply', '--no-checks')
-        after = agents.read_text()
-        block = after[after.index('<!-- arh:project:begin'):]
-        self.assertIn('HG002 is held out.', block)
-        self.assertIn('Directives live in VALIDATION_PROTOCOL.md', block)
-        self.assertNotIn('Directives live in', after[:after.index('<!-- arh:project:begin')])
+        out = self.call('migrate', str(self.root), '--apply', '--no-checks').stdout
+        self.assertIn('AGENTS.md: NOT replaced', out)                     # text outside the block: left alone
+        self.assertIn('Directives live elsewhere.', agents.read_text())
         self.assertIn(str(held), json.loads((self.root / 'opencode.json').read_text())['permission']['external_directory'])
         self.assertRegex((self.root / '.arh/VERSION').read_text(), r'(?m)^framework = autoresearch-hpc ')
-        self.assertIn('kept in the arh:project block', (self.root / '.arh/migrations.log').read_text())
+        self.assertIn('harness access', (self.root / '.arh/migrations.log').read_text())
+        old = (ROOT / 'AGENTS.md').read_text().replace('## Before you finish', '## Before you finish (old wording)')
+        agents.write_text(old.replace('<!-- arh:project:begin -->\n', '<!-- arh:project:begin -->\nHG002 is held out.\n'))
+        self.call('migrate', str(self.root), '--apply', '--no-checks', '--force')
+        after = agents.read_text()
+        self.assertEqual(after, (ROOT / 'AGENTS.md').read_text().replace(
+            '<!-- arh:project:begin -->\n', '<!-- arh:project:begin -->\nHG002 is held out.\n'))
         self.assertIn('nothing to do', self.call('migrate', str(self.root)).stdout)
         self.assertNotIn("differ from the framework's", self.call('doctor', good=None).stderr)
 

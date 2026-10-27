@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 . "${ARH_HOME:?}/lib/common.sh"
-[ "${1-}" = --help ] && { echo 'usage: arh context -n N'; exit 0; }
-[ "${1-}" = -n ] && [ -n "${2-}" ] || arh_die 'usage: arh context -n N'
+case "${1-}" in
+  --help|-h) echo 'usage: arh context          the session-start brief: current state, open iterations, directives, gotchas index
+       arh context -n N     one iteration, as JSON'; exit 0 ;;
+esac
 arh_load_project
+if [ -z "${1-}" ]; then
+  exec python3 "$ARH_HOME/lib/brief.py" "$ARH_ROOT" "$ARH_ITERS" "$(arh_config_get "$ARH_PROJ" context_max_bytes 48000)"
+fi
+[ "${1-}" = -n ] && [ -n "${2-}" ] || arh_die 'usage: arh context [-n N]'
 exec python3 "$ARH_HOME/lib/context.py" "$2"

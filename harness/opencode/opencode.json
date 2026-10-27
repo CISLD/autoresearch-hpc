@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "instructions": ["AGENTS.md", "PROGRESS.md", "GOTCHAS.md"],
+  "instructions": ["AGENTS.md"],
   "agent": {
     "adversary": {
       "description": "Assume the iteration's conclusion is wrong and find out why.",

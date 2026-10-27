@@ -8,7 +8,10 @@ export ARH_HOME
 arh_die()  { printf 'arh: %s\n' "$*" >&2; exit 1; }
 arh_warn() { printf 'arh: %s\n' "$*" >&2; }
 arh_info() { printf '  %s\n' "$*"; }
-arh_ok()   { printf '  OK   %s\n' "$*"; }
+# Gates and doctor list only what needs attention unless asked (-v or ARH_VERBOSE=1): their passing
+# checks were most of what an agent read from them, every time it ran them. They count instead.
+arh_ok()   { if [ "${ARH_QUIET_OK:-0}" = 1 ]; then ARH_OK_COUNT=$(( ${ARH_OK_COUNT:-0} + 1 )); else printf '  OK   %s\n' "$*"; fi; }
+arh_ok_summary() { [ "${ARH_OK_COUNT:-0}" = 0 ] || printf '  OK   %s check(s) passed (-v lists them)\n' "$ARH_OK_COUNT"; }
 arh_fail() { printf '  FAIL %s\n' "$*"; }
 
 # Config files are Markdown. Machine-readable settings live only in

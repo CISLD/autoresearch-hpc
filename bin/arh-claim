@@ -115,4 +115,4 @@ arh_lease_touch "$dir" "arh claim"
 printf '%s\n' "$n"
 printf 'claimed iteration %s at %s\n' "$n" "$dir" >&2
 printf 'next: arh new -n %s   (complete the pre-declaration BEFORE running anything)\n' "$n" >&2
-printf 'read: %s and GOTCHAS.md; write what this session learns there, not to private memory\n' "${ARH_DIRECTIVES#"$ARH_ROOT"/}" >&2
+printf 'read: arh context (directives in force, gotchas index); write what this session learns into the project, not private memory\n' >&2

@@ -54,7 +54,7 @@ arh — AutoResearch HPC
   arh env    {create|path|list}  scientific environments: solve once in the task image, lock, reuse
   arh guard  PATH...             assert paths are writable under the project
   arh ledger [render|check]      maintain the project record
-  arh context -n N               compact deterministic handoff; no model call
+  arh context [-n N]             session-start brief (or one iteration); no model call
   arh status [--running]         show iterations, claims and gate state; --running: what runs now
   arh doctor [--smoke [gpu]]     check environment and configuration; --smoke runs one real task
   arh site   detect              probe this machine and propose a site.md block

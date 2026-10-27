@@ -94,7 +94,7 @@ Or hand the workflow to a configured agent and ask it to **use the Iterate skill
 To resume without conversation history:
 
 ```bash
-arh status
+arh context          # session-start brief: current state, open iterations, directives, gotchas index
 arh next
 arh context -n N
 ```

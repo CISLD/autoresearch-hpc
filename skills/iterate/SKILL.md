@@ -10,11 +10,11 @@ that is normally another iteration.
 
 ## 0. Read what the project already knows
 
-`PROGRESS.md` (state), `DIRECTIVES.md` (operator directives, data locations,
-external findings) and `GOTCHAS.md` (silent failure modes), plus the site's
-`site_gotchas` file when `.arh/config/site.md` names one. Whatever you learn that
-outlives this session goes back into those files, never only into a harness's
-private memory.
+`arh context` prints the current state, open iterations, the directives in force
+and the gotchas index; open the gotcha entries about the tools and inputs you will
+use, and the site's `site_gotchas` file when `.arh/config/site.md` names one.
+Whatever you learn that outlives this session goes back into the project's files,
+never only into a harness's private memory.
 
 ## 1. Claim
 
@@ -54,7 +54,7 @@ arh submit iterations/iterationN/scripts/experiment.nf -n itN_01
 
 Scientific packages come from `arh env create NAME pkg=version ...`, solved once in
 the task image and locked. `arh submit WORKFLOW.nf --lint` checks a workflow before
-it runs; `AGENTS.md` shows a minimal one.
+it runs; `reference.md` beside this file shows a minimal one.
 
 A confirmation on held-out data (`sealed_inputs`) first freezes every artefact
 carrying a decision: `arh freeze -n N MODEL THRESHOLDS SCRIPTS...`. Only then can
@@ -84,7 +84,7 @@ Evaluate findings on their merits. A verdict is evidence, not a ruling.
 
 `arh ask` blocks until the review is written; stay in the session until it returns.
 Exit 75 (usage or rate limit, authentication) and exit 77 (the provider refused the
-content) spend no review round. After 75, wait for the stated reset and run it again;
+content) spend no review round. After 75, run it again after a bounded wait (the stated reset is an upper bound);
 after 77, the configured fallback verifiers have already been tried.
 
 **Where to record it.** A review is bound to the report's sha256 and to every

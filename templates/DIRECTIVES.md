@@ -1,8 +1,8 @@
 # Directives and durable knowledge — {{PROJECT}}
 
 Facts that must outlive any one agent session: what the operator decided, where
-the data are, and what was learned outside the project. Every agent reads this
-file with `PROGRESS.md` and `GOTCHAS.md`, and writes here, not to a harness's
+the data are, and what was learned outside the project. `arh context` shows every
+session the current directives below; every agent writes here, not to a harness's
 private memory, as soon as it learns such a fact. Private memory may keep a
 pointer to this file, never the fact itself: no other harness, account or
 reviewer can see it.
@@ -14,6 +14,12 @@ conditions it holds, so a later session can tell whether it is still current.
 `arh claim` records this file's hash, `arh delegate` hands it to an executor,
 and `arh ask` points the reviewer at it, so a review checks the work against the
 same directives the producer followed.
+
+## Current directives
+
+<Every directive still in force, one line each, with the dated entry below it
+comes from. `arh context` prints this section in full; without it a session has
+to read this whole file. Update it when a directive is added or superseded.>
 
 ## Operator directives
 
