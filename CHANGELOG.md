@@ -95,6 +95,10 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   word "assertion" (27 of one study's 37, most of which stated their check). An `**Assertion:**`
   line or wording such as "asserts" or "requires x == 0" now counts, and the entries without one
   are listed one per line (#53).
+- **A standing rule can carry `effective_from`** (an iteration number or a date): it then binds
+  only iterations numbered from it or claimed on or after it, so activating a rule no longer
+  re-fails reports concluded before it (#49). `arh-smoke` commands run from the project root, so
+  they can name `.arh/envs/...` relatively (#66).
 - **The report-number check reads summaries first.** It read `results/` in path order and spent
   its 64 MB on per-sample tables before the summary holding every reported number (#70). Files
   named by `report_numbers_files` (`project.md`) come first, then files the report names, then the

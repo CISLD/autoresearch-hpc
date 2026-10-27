@@ -31,6 +31,21 @@ check_rules() {
     applies=$(arh_config_get "$rf" applies "report")
     case " $applies " in *" $phase "*) ;; *) continue ;; esac
     id=$(arh_config_get "$rf" id "$r")
+    # effective_from = N or YYYY-MM-DD: the rule binds iterations numbered N or later, or claimed on or
+    # after that date. Activating a rule re-failed every older report, two of them concluded that day
+    # (field feedback #49).
+    eff=$(arh_config_get "$rf" effective_from "")
+    if [ -n "$eff" ]; then
+      local it_n claimed
+      it_n=$(printf '%s' "$doc" | sed -n 's|.*/iteration\([0-9]\{1,\}\)/.*|\1|p')
+      if [ -n "$it_n" ]; then
+        claimed=$(sed -n 's/.*"claimed"[ ]*:[ ]*"\([0-9-]\{10\}\).*/\1/p' "$ARH_ITERS/iteration$it_n/CLAIM.json" 2>/dev/null | head -1)
+        case "$eff" in
+          *[!0-9]*) if [ -n "$claimed" ] && [[ "$claimed" < "$eff" ]]; then arh_info "$id — not in force: iteration $it_n was claimed $claimed, the rule is effective from $eff"; continue; fi ;;
+          *) if [ "$it_n" -lt "$eff" ]; then arh_info "$id — not in force: the rule is effective from iteration $eff"; continue; fi ;;
+        esac
+      fi
+    fi
     sev=$(arh_config_get "$rf" severity error)
     forbid=$(arh_config_get "$rf" forbid "")
     requires=$(arh_config_get "$rf" requires "")
@@ -129,7 +144,8 @@ case "$sub" in
         image=runtime; command=$line
         if printf '%s' "$line" | grep -qE '^[A-Za-z0-9_-]+:[[:space:]]'; then image=${line%%:*}; command=${line#*:}; fi
         printf '$ [%s] %s\n' "$image" "$command" >> "$smoke_out"
-        if "$ARH_HOME/bin/arh" run "$image" -- /bin/sh -c "$command" >> "$smoke_out" 2>&1; then
+        # From the project root, so a command can name .arh/envs/... relatively (field feedback #66).
+        if "$ARH_HOME/bin/arh" run "$image" -- /bin/sh -c "cd $(printf '%q' "$ARH_ROOT") && $command" >> "$smoke_out" 2>&1; then
           arh_ok "smoke [$image]:$command"
         else
           arh_fail "smoke [$image]:$command failed (output in ${smoke_out#"$ARH_ROOT"/})"; fails=$((fails+1))

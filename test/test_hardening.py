@@ -2067,6 +2067,19 @@ elif args[0] == 'list':
         self.assertIn('idle', self.call('wait', '-n', 'recount', '--timeout', '5').stdout)
         self.call('note', '-n', '../x', 'escape', good=False)
 
+    def test_a_rule_binds_only_iterations_from_its_effective_date(self):
+        # Activating a rule re-failed every older report, two of them concluded that day (field feedback #49).
+        (self.root / 'rules').mkdir(exist_ok=True)
+        (self.root / 'rules/unseen.md').write_text('```arh-config\nid = unseen-variants-reported\napplies = report\n'
+                                                   'requires = unseen variants\neffective_from = 2\n```\n')
+        self.set_config('project.md', rules='unseen')
+        self.ask()
+        out = self.gate().stdout
+        self.assertIn('not in force: the rule is effective from iteration 2', out)
+        text = (self.root / 'rules/unseen.md').read_text().replace('effective_from = 2', 'effective_from = 2000-01-01')
+        (self.root / 'rules/unseen.md').write_text(text)
+        self.assertIn('document never states: unseen variants', self.gate(good=False).stdout)
+
     def test_inputs_check_reads_end_markers_and_caches_passes(self):
         # A truncated CRAM (no end-of-file container) made a caller drop chr11-22 silently (2026-10-04).
         sys.path.insert(0, str(ROOT / 'lib'))
