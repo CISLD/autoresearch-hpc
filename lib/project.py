@@ -1,7 +1,9 @@
 """Small file/config helpers for deterministic AutoResearch HPC adapters."""
 import hashlib
 import json
+import os
 from pathlib import Path
+import stat
 import sys
 
 
@@ -29,6 +31,20 @@ def guard(path, root, immutable=()):
         source = (source if source.is_absolute() else root / source).resolve()
         if path == source or source in path.parents:
             raise ValueError('immutable path: ' + str(path))
+    return path
+
+
+def share(path):
+    """Give a file or directory made by mkdtemp/mkstemp (0700/0600) the mode the umask gives anything
+    else, keeping a directory's setgid bit. In a project shared between two accounts through a group,
+    private run directories hid run.json and nextflow.log from the other account (field feedback #88)."""
+    path = Path(path)
+    mask = os.umask(0)
+    os.umask(mask)
+    if path.is_dir():
+        os.chmod(path, (0o777 & ~mask) | (path.stat().st_mode & stat.S_ISGID))
+    else:
+        os.chmod(path, 0o666 & ~mask)
     return path
 
 

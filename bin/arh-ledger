@@ -66,6 +66,7 @@ case "$sub" in
     else
       { cat "$ARH_LEDGER"; printf '\n'; cat "$table"; } > "$tmp"
     fi
+    chmod --reference="$ARH_LEDGER" "$tmp" 2>/dev/null || arh_share_mode "$tmp"   # mktemp's 0600 hid the ledger (#88)
     mv "$tmp" "$ARH_LEDGER"; rm -f "$table"
     printf 'rendered status table into %s\n' "${ARH_LEDGER#"$ARH_ROOT"/}"
     ;;

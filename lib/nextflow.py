@@ -21,7 +21,7 @@ import imports
 import inputs
 import lease
 from locks import Held, acquire, owner, release
-from project import config, guard
+from project import config, guard, share
 
 GPU_LABELS = ('gpu', 'process_gpu')
 # Groovy, evaluated per task in the generated config: does this task want a GPU?
@@ -297,7 +297,7 @@ def run():
         parser.error('this named workflow is already running; inspect .launch-lock before recovery'
                      + (f'{held}; stop it with kill -TERM' if str(held) else ''))
     try:
-        attempt = Path(tempfile.mkdtemp(prefix='attempt-', dir=logs))
+        attempt = share(tempfile.mkdtemp(prefix='attempt-', dir=logs))
         if os.environ.get('ARH_DETACHED'):
             # The detached log otherwise held only arh's warnings; the live log is in the attempt (#71).
             print(f'arh: attempt {attempt}; live log {attempt / "nextflow.log"}, trace {attempt / "trace.tsv"}',

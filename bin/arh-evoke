@@ -99,7 +99,7 @@ if [ "$dry" = 1 ]; then
   cleanup=1
 else
   base="$dir/metadata/evocations"; mkdir -p "$base"; arh_guard_path "$base"
-  run=$(mktemp -d "$base/${stamp}-${tool}.XXXXXX")
+  run=$(mktemp -d "$base/${stamp}-${tool}.XXXXXX"); arh_share_mode "$run"
   cleanup=0
 fi
 request="$run/request.md"; output="$run/artifacts"

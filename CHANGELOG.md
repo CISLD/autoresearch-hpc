@@ -52,6 +52,11 @@ of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studi
   jobs by their work directory and marks a run STARVED when its tasks wait and none has started or
   finished for `starve_hours` (default 6). One iteration's tasks waited 3.5 days behind another's
   while its driver kept logging (#69).
+- **Records keep the project's group access** (needed once a project is shared between two Unix
+  accounts, as with an hpc-chaperone agent persona; a one-account project is unaffected). Attempt directories, review records, prompts and
+  the re-rendered ledger were created by `mkdtemp`/`mktemp` as 0700/0600, so a second account
+  sharing the project through a group could not read `run.json` or `nextflow.log` (#88). They now
+  get the mode the umask gives (a directory keeps its setgid bit); the ledger keeps its own mode.
 - **`arh migrate` keeps what the study wrote into its `AGENTS.md`.** It replaced the file
   wholesale and a study's directives pointer and feedback rule survived only in the backup (#42).
   The contract now ends with an `arh:project` block that migrate keeps; lines outside it that no

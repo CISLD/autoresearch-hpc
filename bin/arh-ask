@@ -147,7 +147,7 @@ case "$role" in reimplementer) blind=1 ;; esac
 
 arh_guard_path "$dir"
 [ "$dry" = 1 ] || arh_lease_touch "$dir" "$([ "$kind" = review ] && echo "arh ask --role $role" || echo 'arh ask --rebuttal')"
-prompt=$(mktemp "$dir/logs/prompt.XXXXXX")
+prompt=$(mktemp "$dir/logs/prompt.XXXXXX"); arh_share_mode "$prompt"
 lock=""
 cleanup() { rm -f "$prompt"; [ -z "$lock" ] || { rm -f "$lock/owner.json"; rmdir "$lock"; }; }
 trap cleanup EXIT
@@ -271,6 +271,7 @@ for h in $candidates; do
   fi
 
   out=$(mktemp "$dir/${prefix}${h}_$(date -u +%Y%m%dT%H%M%SZ).XXXXXX")
+  arh_share_mode "$out"
   mv "$out" "$out.md"
   out="$out.md"
   printf 'cross-check: role=%s harness=%s (%s) vs producer=%s (%s)\n' \

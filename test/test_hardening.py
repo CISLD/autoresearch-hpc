@@ -2269,6 +2269,27 @@ elif args[0] == 'list':
         self.assertIn('submission bad FAILED, exit 1', running)
 
     @needs_site
+    def test_run_records_are_readable_by_the_project_group(self):
+        # Attempt directories were 0700 (2700 under a setgid parent), so a second account sharing the
+        # project through a group could not read run.json or nextflow.log (field feedback #88).
+        old = os.umask(0o002)
+        try:
+            os.chmod(self.it / 'logs', 0o2775)
+            os.chmod(self.root / 'PROGRESS.md', 0o664)
+            script = self.it / 'scripts/it1_01_ok.sh'; script.write_text('exit 0\n')
+            self.call('submit', str(script), '-n', 'shared', timeout=300)
+            self.ask()
+            self.call('ledger', 'render')
+        finally:
+            os.umask(old)
+        attempt = next((self.it / 'logs/nextflow/shared').glob('attempt-*'))
+        self.assertEqual(stat.S_IMODE(attempt.stat().st_mode) & 0o070, 0o070)
+        self.assertTrue(attempt.stat().st_mode & stat.S_ISGID)
+        review = next(self.it.glob('CROSSCHECK_*.md'))
+        self.assertEqual(stat.S_IMODE(review.stat().st_mode) & 0o060, 0o060)
+        self.assertEqual(stat.S_IMODE((self.root / 'PROGRESS.md').stat().st_mode), 0o664)   # mktemp's 0600 is gone
+
+    @needs_site
     def test_task_retries_are_opt_in_and_recorded(self):
         flag = self.it / 'results/flaky.flag'
         wf = self.nf('it1_01_flaky.nf', 'process F {\n    output:\n    stdout\n    script:\n    """\n'

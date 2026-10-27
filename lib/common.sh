@@ -73,6 +73,18 @@ arh_load_project() {
     ARH_SESSION_ENV ARH_SECRET_SCANNER
 }
 
+# mktemp makes files 0600 and directories 0700. Anything arh keeps in the project gets the mode the
+# umask gives other files (a directory keeps its setgid bit), or a project shared between accounts
+# through a group hides its records from the other account (field feedback #88).
+arh_share_mode() {
+  local p m
+  m=$(umask)
+  for p in "$@"; do
+    if [ -d "$p" ]; then chmod "$(printf '%o' $(( 0777 & ~m )))" "$p"
+    elif [ -e "$p" ]; then chmod "$(printf '%o' $(( 0666 & ~m )))" "$p"; fi
+  done
+}
+
 arh_now()   { date -u +%Y-%m-%dT%H:%M:%SZ; }
 arh_today() { date -u +%Y-%m-%d; }
 
