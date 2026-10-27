@@ -93,5 +93,12 @@ lease_stale_hours = 24
 review_response   = require
 unsound_review    = require-adjudication
 report_numbers    = warn
+# What a task may write: ro lets it write only its iteration's results/ and its run's work directory,
+# so a task cannot change a frozen plan, a review, a receipt or another iteration; rw is the old
+# behaviour, which projects without this key keep.
+task_project_access = ro
+# Scripts already in scripts/ when the plan is frozen are pinned with it. A run after one of them
+# changed: warn (reported, and recorded in the run receipt), refuse, or off.
+frozen_scripts    = warn
 freeze_anchor     =
 ```

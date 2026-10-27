@@ -152,12 +152,15 @@ case "$sub" in
         || arh_die "freeze_anchor failed, so nothing was frozen: $(printf '%s' "$anchor_out" | tail -1)"
       anchor=$(printf '%s\n' "$anchor_out" | head -1)
     fi
+    scripts_pinned=$(python3 "$ARH_HOME/lib/imports.py" scripts "$ARH_ROOT" "$dir")
     ( set -C; { printf '%s\n%s\n' "$sha" "$at"; [ -z "$imports" ] || printf '%s\n' "$imports"
+                [ -z "$scripts_pinned" ] || printf '%s\n' "$scripts_pinned"
                 [ -z "$smoke_line" ] || printf '%s\n' "$smoke_line"; } > "$dir/PREDECLARATION.sha256" ) \
       || arh_die "freeze already exists"
     python3 "$ARH_HOME/lib/record.py" append "$ARH_ROOT" "$n" "$sha" "$at" "$anchor" >/dev/null \
       || arh_die "the freeze of iteration $n could not be journalled in .arh/freezes.tsv"
     printf '\ngate PASSED. Pre-declaration frozen:\n  %s\n' "$(head -1 "$dir/PREDECLARATION.sha256")"
+    [ -z "$scripts_pinned" ] || printf '  and %s script(s) already in scripts/, pinned with it\n' "$(printf '%s\n' "$scripts_pinned" | grep -c .)"
     printf 'The README hash is frozen and journalled; later edits will fail validation. Corrections go in a new iteration.\n'
     [ -z "$anchor" ] || printf 'Anchored: %s\n' "$anchor"
     ;;
@@ -212,6 +215,11 @@ case "$sub" in
 
     # Work that ran outside arh submit has no receipt; say so instead of letting the record imply one.
     python3 "$ARH_HOME/lib/record.py" runs "$dir"
+    pinned=$(python3 "$ARH_HOME/lib/imports.py" changed "$ARH_ROOT" "$dir")
+    if [ -n "$pinned" ]; then
+      printf '  WARN %s script(s) pinned with the frozen plan changed since the freeze; name each in the report as a deviation: %s\n' \
+        "$(printf '%s\n' "$pinned" | grep -c .)" "$(printf '%s\n' "$pinned" | paste -sd' ' -)"
+    fi
     receipts=$(find "$dir/logs" -path '*/attempt-*/run.json' 2>/dev/null | grep -c . || true)
     if [ -n "$(find "$dir/results" -type f ! -path '*/report/*' 2>/dev/null | head -1)" ] && [ "$receipts" = 0 ]; then
       printf '  WARN results exist but no arh submit run receipt does: what produced them is not on record\n'

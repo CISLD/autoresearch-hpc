@@ -46,6 +46,7 @@ arh — AutoResearch HPC
   arh run    IMAGE -- CMD...     run a command in a pinned container
   arh submit SCRIPT -n NAME      submit a job through the configured workflow engine
   arh wait   [-n N]              block until running submissions and reviews finish
+  arh stop   -n N | --all        stop running submissions and dispatched controllers; --jobs: noted jobs too
   arh inputs {check|list}        check that declared inputs are whole (CRAM/BGZF end markers; --deep)
   arh lease  {show|take} -n N    who is working on an iteration, and taking it over on purpose
   arh sessions -n N              the agent sessions that acted on an iteration (and Entire checkpoints)
@@ -72,7 +73,7 @@ case "$cmd" in
       "$(cat "$ARH_HOME/VERSION" 2>/dev/null || echo unknown)" \
       "$(sed -n 's/^# The AutoResearch HPC protocol, v//p' "$ARH_HOME/PROTOCOL.md" 2>/dev/null || echo unknown)"
     ;;
-  init|migrate|claim|new|arm|gate|freeze|ask|evoke|delegate|dispatch|dag|replicate|verify|run|submit|note|wait|inputs|lease|sessions|memory|env|guard|ledger|status|doctor|site|next|context)
+  init|migrate|claim|new|arm|gate|freeze|ask|evoke|delegate|dispatch|dag|replicate|verify|run|submit|note|wait|inputs|lease|sessions|memory|env|guard|ledger|status|doctor|site|next|context|stop)
     exec "$ARH_HOME/bin/arh-$cmd" "$@" ;;
   *) printf 'arh: unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;
 esac

@@ -43,6 +43,13 @@ fi
 
 printf '\nexecution:\n'
 sched=$(arh_config_get "$ARH_SITE" scheduler local)
+# Where this session runs (S2): centres ask agents to stay light on login nodes and run inside an
+# allocation, and an agent session on a login node may break a site's policy without anyone noticing.
+if [ -n "${SLURM_JOB_ID:-}" ]; then arh_ok "running inside Slurm job $SLURM_JOB_ID on $(uname -n)"
+elif [ -n "${PBS_JOBID:-}" ]; then arh_ok "running inside PBS job $PBS_JOBID on $(uname -n)"
+elif [ "$sched" != local ]; then
+  arh_info "running on $(uname -n) outside a scheduler allocation: if this is a login node, keep the agent a light driver and check the site's policy for long sessions"
+fi
 case "$sched" in
   slurm)
     missing=""

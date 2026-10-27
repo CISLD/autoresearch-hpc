@@ -53,6 +53,8 @@ they are reported as skipped. The result is written as JSON with the commit it r
 | E21 | a second controller dispatched to the same iteration | refused |
 | E22 | a review from the executor's model family (`orchestration = per-iteration`) | refused |
 | E17 | a concluded iteration's directory deleted and the ledger re-rendered | `arh ledger check` fails: the claim registry still lists it |
+| E23 | a task writes the frozen plan (`task_project_access = ro`) | the write fails on a read-only mount; the iteration's `results/` stays writable |
+| E24 | a run after a script that was in `scripts/` at the freeze changed (`frozen_scripts = refuse`) | `arh submit` refuses before a run exists |
 
 E14–E17 come from an external review of v0.3.0 (2026-10-13), which found that v0.3.0
 accepted all four: an empty pre-declaration froze, an iteration whose only review said

@@ -162,6 +162,17 @@ def run():
                 print('arh: ' + problem[5:], file=sys.stderr)
             else:
                 parser.error(problem + '. A changed dependency is a new iteration.')
+    # Scripts that were in scripts/ when the plan was frozen are pinned with it (frozen_scripts).
+    pinned_changed = imports.pinned_changes(root, iteration) if kind != 'smoke' else []
+    policy = project.get('frozen_scripts') or 'warn'
+    if policy not in ('warn', 'refuse', 'off'):
+        parser.error('frozen_scripts must be warn, refuse or off')
+    if pinned_changed and policy == 'refuse':
+        parser.error('scripts pinned with the frozen plan changed: ' + ', '.join(pinned_changed)
+                     + '. A changed plan is a new iteration (frozen_scripts = refuse).')
+    if pinned_changed and policy == 'warn':
+        print('arh: scripts pinned with the frozen plan changed since the freeze: ' + ', '.join(pinned_changed)
+              + '. Report it as a deviation; the run receipt records it.', file=sys.stderr)
     # A confirmation applies frozen decisions; one whose decisions changed under it is not that run.
     frozen_state, freeze_sha, changed = freeze.state(root, iteration)
     if frozen_state == 'changed':
@@ -286,7 +297,18 @@ def run():
                     parser.error('Slurm command missing from host PATH: ' + tool)
         if not Path(image).is_file() or sha(image) != site.get('runtime_sha256'):
             parser.error('runtime SIF missing or digest mismatch')
-        binds = [str(root) + ':' + str(root) + ':rw']
+        # task_project_access = ro: a task reads the project but writes only its own iteration's results/
+        # and its run's work directory, so it cannot change a frozen plan, a review, a receipt or another
+        # iteration (external review of v0.3.0: "tasks can write the record"). rw keeps the old behaviour.
+        access = project.get('task_project_access') or 'rw'
+        if access not in ('rw', 'ro'):
+            parser.error('task_project_access must be rw or ro')
+        if access == 'ro':
+            writable = [guard(iteration / 'results', root, protected), engine]
+            writable[0].mkdir(parents=True, exist_ok=True)
+            binds = [f'{root}:{root}:ro'] + [f'{w}:{w}:rw' for w in writable]
+        else:
+            binds = [str(root) + ':' + str(root) + ':rw']
         task_prefix = site.get('runtime_prefix')
         if task_prefix:
             binds.append(task_prefix + ':' + task_prefix + ':ro')
@@ -378,9 +400,15 @@ def run():
                       executor=executor, runtime=runtime, image=image or None, image_sha256=sha(image),
                       driver_package_sha256=sha(installed[0]),
                       environment_locks={p.name: sha(p) for p in (root / '.arh').glob('*explicit.lock')},
-                      resume=args.resume, reports=reports, command=cmd, started=datetime.now(timezone.utc).isoformat())
+                      resume=args.resume, reports=reports, command=cmd, started=datetime.now(timezone.utc).isoformat(),
+                      task_project_access=access,
+                      # Who launched it (S11): a project shared by several people or accounts.
+                      user=os.environ.get('USER', 'unknown'), host=os.uname().nodename,
+                      session=os.environ.get('ARH_SESSION') or None)
         if checked:
             record['input_checks'] = checked
+        if pinned_changed and policy != 'off':
+            record['scripts_changed_since_freeze'] = pinned_changed
         if images:
             record['images'] = images
         if gpu:

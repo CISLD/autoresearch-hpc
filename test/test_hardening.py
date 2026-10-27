@@ -1934,5 +1934,72 @@ elif args[0] == 'list':
         self.gate(good=False)
 
 
+    # --- v0.4: the record out of a task's reach, pinned scripts, a stop switch ------------------------
+
+    @needs_site
+    def test_a_task_writes_only_its_own_results_when_the_project_is_read_only(self):
+        # External review of v0.3.0: tasks could write anywhere in the project, the record included.
+        script = self.it / 'scripts/it1_01_write.sh'
+        script.write_text(f'set -u\necho ok > {self.it}/results/ok.txt\n'
+                          f'echo forged >> {self.it}/README.md || echo refused > {self.it}/results/refused.txt\n')
+        self.call('submit', str(script), '-n', 'ro')
+        self.assertTrue((self.it / 'results/ok.txt').is_file())
+        self.assertTrue((self.it / 'results/refused.txt').is_file())
+        self.assertNotIn('forged', (self.it / 'README.md').read_text())
+        record = json.loads(next((self.it / 'logs/nextflow/ro').glob('attempt-*/run.json')).read_text())
+        self.assertEqual(record['task_project_access'], 'ro')
+        self.assertEqual((record['user'], record['host']), (os.environ.get('USER', 'unknown'), os.uname().nodename))
+        self.set_config('project.md', task_project_access='rw')
+        self.call('submit', str(script), '-n', 'rw')
+        self.assertIn('forged', (self.it / 'README.md').read_text())
+
+    def pinned_iteration(self):
+        self.call('claim', '-t', 'pinned')
+        self.call('new', '-n', '2')
+        it = self.root / 'iterations/iteration2'
+        headings = ['Question', 'Estimand', 'Instrument', 'Acceptance criteria', 'Negative controls', 'Detection limit', 'Prediction']
+        (it / 'README.md').write_text('\n'.join(f'## {i}. {h}\nThe setup check in scripts/ is part of the plan.\n'
+                                                for i, h in enumerate(headings, 1)))
+        setup = it / 'scripts/it2_04_setup.sh'
+        setup.write_text('test "$(cat /dev/null)" = ""\n')
+        self.assertIn('1 script(s) already in scripts/, pinned', self.call('gate', 'predeclare', '-n', '2').stdout)
+        return it, setup
+
+    def test_scripts_written_with_the_plan_are_pinned_with_it(self):
+        # A gating script was changed after the freeze and nothing in the record showed it (field feedback #74).
+        it, setup = self.pinned_iteration()
+        self.assertRegex((it / 'PREDECLARATION.sha256').read_text(), r'(?m)^script [0-9a-f]{64} iterations/iteration2/scripts/it2_04_setup.sh$')
+        setup.write_text('true  # accept the excluded person\n')
+        report = it / 'results/report/iteration2_report.md'; report.parent.mkdir(parents=True)
+        report.write_text('Candidate only.\n')
+        self.assertIn('pinned with the frozen plan changed since the freeze', self.call('gate', 'results', '-n', '2', good=None).stdout)
+
+    @needs_site
+    def test_a_run_after_a_pinned_script_changed_is_reported_or_refused(self):
+        it, setup = self.pinned_iteration()
+        setup.write_text('true\n')
+        out = self.call('submit', str(setup), '-n', 'setup')
+        self.assertIn('pinned with the frozen plan changed', out.stderr)
+        record = json.loads(next((it / 'logs/nextflow/setup').glob('attempt-*/run.json')).read_text())
+        self.assertEqual(record['scripts_changed_since_freeze'], ['iterations/iteration2/scripts/it2_04_setup.sh'])
+        self.set_config('project.md', frozen_scripts='refuse')
+        self.assertIn('A changed plan is a new iteration', self.call('submit', str(setup), '-n', 'setup2', good=False).stderr)
+
+    @needs_site
+    def test_stop_ends_a_running_submission(self):
+        script = self.it / 'scripts/it1_01_slow.sh'; script.write_text('sleep 300\n')
+        self.call('submit', str(script), '-n', 'slow', '--detach', timeout=300)
+        lock = self.it / 'metadata/nextflow/slow/.launch-lock'
+        deadline = time.time() + 300
+        while time.time() < deadline and not list((self.it / 'metadata/nextflow/slow/work').glob('*/*/.command.begin')):
+            time.sleep(1)
+        self.assertIn('sent SIGTERM', self.call('stop', '-n', '1').stdout)
+        self.call('wait', '-n', '1', '--timeout', '300', timeout=400)
+        self.assertFalse(lock.exists())
+        record = json.loads(next((self.it / 'logs/nextflow/slow').glob('attempt-*/run.json')).read_text())
+        self.assertEqual(record['signal'], 'SIGTERM')
+        self.assertIn('nothing to stop', self.call('stop', '--all').stdout)
+        self.call('stop', good=False)
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

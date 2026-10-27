@@ -122,6 +122,14 @@ review can find a bug. An implementation SHOULD report when a file a completed
 run used is edited and run again within the same iteration, so that the report
 says which run each result comes from.
 
+5.9b Scripts present in the iteration when its plan is frozen are part of the
+plan: an implementation MUST bind them to the freeze by hash, and MUST report (or,
+when the project says so, refuse) a run after one of them changed.
+
+5.9c A task SHOULD be able to write only its own iteration's results and its
+run's working files; the project's declarations, reviews, receipts and other
+iterations SHOULD be read-only to it.
+
 5.10 Declared inputs SHOULD be checked for integrity (at least that a
 compressed or container file is complete) before a run reads them, and the
 result SHOULD be recorded with the run.
@@ -321,9 +329,11 @@ sandbox or trusted timestamp authority. Local hashes detect later changes but do
 not prove temporal priority against an actor controlling the filesystem. The
 freeze journal detects a second freeze, a removed row and a deleted iteration;
 an actor who rewrites the whole chain is outside this boundary unless freezes
-are anchored outside the project (§3.6). Workflow tasks can write anywhere in the
-project except declared inputs; the hashes detect such writes to declarations
-and reviewed evidence afterwards, they do not prevent them. A
+are anchored outside the project (§3.6). With `task_project_access = ro` a
+workflow task writes only its iteration's `results/` and its run's work directory
+(§5.9c); with `rw` it can write anywhere in the project except declared inputs,
+and the hashes detect such writes to declarations and reviewed evidence afterwards,
+they do not prevent them. Neither setting confines the agent's own shell. A
 blind-review directory does not by itself prevent an agent from reading files it
 has OS permission to access. The review terms and policy bound at claim (§6.7,
 §6.9) are recorded in files the producer can write: the binding stops a

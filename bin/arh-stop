@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Stop a project's running work: one switch instead of finding each process and job by hand.
+#
+#   arh stop -n N|OBJECT [--jobs]   stop iteration N's (or a verification's) live submissions and
+#                                   dispatched controller; --jobs also cancels the scheduler jobs noted
+#                                   with arh note --job that are still queued or running
+#   arh stop --all [--jobs]         the same for every iteration and verification
+#
+# A submission is stopped with SIGTERM to its arh process, which stops Nextflow, which cancels its
+# scheduler jobs and records the signal in the run receipt. A process on another host is named, not
+# signalled. Reviews are left to finish or time out.
+set -euo pipefail
+# shellcheck source=lib/common.sh
+. "${ARH_HOME:?}/lib/common.sh"
+
+n=""; all=0; jobs=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -n|--iteration) n="${2-}"; shift 2 ;;
+    --all) all=1; shift ;;
+    --jobs) jobs=1; shift ;;
+    -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) arh_die "unexpected argument: $1" ;;
+  esac
+done
+arh_load_project
+if [ "$all" = 1 ]; then owners=""
+else
+  [ -n "$n" ] || arh_die "what to stop? arh stop -n N, or arh stop --all"
+  case "$n" in */*|.*) arh_die "no iteration or verification '$n'" ;; *[!0-9]*) owners="$ARH_VERIFY/$n" ;; *) owners="$ARH_ITERS/iteration$n" ;; esac
+  [ -d "$owners" ] || arh_die "no iteration or verification '$n'"
+fi
+exec python3 "$ARH_HOME/lib/stop.py" "$ARH_ITERS" "$ARH_VERIFY" "$(arh_config_get "$ARH_SITE" scheduler local)" "$jobs" $owners

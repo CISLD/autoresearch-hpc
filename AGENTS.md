@@ -105,7 +105,13 @@ a workflow, params file or script that names one is refused before it runs.
 ## Writing a workflow for `arh submit`
 
 `arh submit` runs a Nextflow workflow that belongs to a claimed iteration with a
-frozen pre-declaration, and blocks until Nextflow exits. A minimal workflow:
+frozen pre-declaration, and blocks until Nextflow exits. With
+`task_project_access = ro` (the default for new projects) a task can write only
+its iteration's `results/` and its own work directory; everything else in the
+project is read-only inside it. Scripts already in `scripts/` when the plan is
+frozen are frozen with it: changing one afterwards is a deviation the report must
+name (or a new iteration, with `frozen_scripts = refuse`). `arh stop -n N` stops
+the iteration's running submissions. A minimal workflow:
 
 ```nextflow
 params.outdir = 'results'      // arh submit sets iterations/iterationN/results/<name>

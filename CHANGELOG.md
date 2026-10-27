@@ -10,6 +10,24 @@ Singularity with two producer accounts and two verifier families, and from an ex
 of v0.3.0 (2026-10-13) that probed the gates directly. **Protocol 0.3.0**: studies need
 `arh migrate --apply`, which starts the freeze journal.
 
+### Changed (external review of v0.3.0: the rest of its recommendation R5, and the S plan)
+- **Tasks cannot write the record.** With `task_project_access = ro` (`project.md`; the default
+  for new projects, while projects without the key keep `rw`) the project is mounted read-only in
+  every task except the iteration's `results/` and the run's work directory, so a task cannot
+  change a frozen plan, a review, a receipt, the ledger or another iteration. The receipt records
+  the setting. `PROTOCOL.md` §5.9c; conformance E23.
+- **Scripts written with the plan are frozen with it.** `arh gate predeclare` adds a
+  `script <sha256> <path>` line to `PREDECLARATION.sha256` for every file already in the
+  iteration's `scripts/`. A run after one of them changed is reported and recorded in the receipt
+  (`scripts_changed_since_freeze`), or refused with `frozen_scripts = refuse`, and `arh gate
+  results` names it as a deviation. A field study changed a gating script's acceptance rule after
+  the freeze with nothing in the record (field feedback #74). `PROTOCOL.md` §5.9b; conformance E24.
+- **`arh stop -n N | --all [--jobs]`** stops live submissions (SIGTERM, so Nextflow cancels its
+  jobs and the receipt records the signal) and dispatched controllers on this host, names those
+  on another host, and with `--jobs` cancels noted scheduler jobs.
+- **Run receipts name who launched the run** (`user`, `host`, `session`), for projects shared by
+  several people or accounts, and `arh doctor` says whether it runs inside a scheduler allocation.
+
 ### Changed (external review of v0.3.0)
 - **An `UNSOUND` verdict no longer concludes an iteration by itself.** v0.3.0 accepted
   `SOUND`, `QUALIFIED` and `UNSOUND` alike once the hashes matched, and three benchmark

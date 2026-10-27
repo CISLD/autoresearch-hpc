@@ -2,9 +2,9 @@
 """Protocol conformance matrix: inject each protocol violation and check that arh refuses it.
 
 E1-E22 run this checkout's `arh` in a scratch project against a stand-in reviewer, so no model
-is called. E5b, E6, E9, E12 and E13 run real tasks and need --site, a configured site.md. A Slurm or PBS
+is called. E5b, E6, E9, E12, E13, E23 and E24 run real tasks and need --site, a configured site.md. A Slurm or PBS
 site submits real jobs, so put --workdir on a filesystem the compute nodes can see. Without
---site those five are reported as skipped. The matrix is printed and written as JSON.
+--site those seven are reported as skipped. The matrix is printed and written as JSON.
 
     python3 test/conformance.py [--site SITE.md] [--workdir DIR] [--json FILE] [--claims N]
                                 [--claim-launcher 'srun -N 4 --ntasks-per-node 8'] [--keep]
@@ -62,7 +62,7 @@ The mean difference is 0.0184 raw units.
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument('--site', type=Path, help='site.md for the cases that run tasks (E5b, E6, E9, E12, E13)')
+    parser.add_argument('--site', type=Path, help='site.md for the cases that run tasks (E5b, E6, E9, E12, E13, E23, E24)')
     parser.add_argument('--workdir', type=Path, help='where the scratch project is created (default: $TMPDIR)')
     parser.add_argument('--json', type=Path, default=Path('conformance.json'), help='result file')
     parser.add_argument('--claims', type=int, default=8, help='concurrent claims in E4')
@@ -213,7 +213,9 @@ def main():
                   ('E6', 'task exits with an error', 'failure reported; receipt and logs kept'),
                   ('E9', 'submission interrupted while its task runs', 'signal recorded; launch lock released'),
                   ('E12', 'held-out data read before a freeze', 'named path refused; hidden path unreadable'),
-                  ('E13', 'frozen decision changed before the confirmation', 'confirmation refused')]
+                  ('E13', 'frozen decision changed before the confirmation', 'confirmation refused'),
+                  ('E23', 'task writes the frozen plan (task_project_access = ro)', 'write refused inside the task'),
+                  ('E24', 'run after a script pinned with the plan changed (frozen_scripts = refuse)', 'submit refuses')]
     if not args.site:
         for cid, violation, expected in task_cases:
             case(cid, violation, expected, None, 'skipped: needs --site')
@@ -268,6 +270,31 @@ def main():
              and released and cancelled,
              f"task started {started}; signal {receipt('slow', 'signal')}; lock released {released}"
              + (f'; job gone from queue {cancelled}' if scheduler == 'slurm' else ''))
+
+        # E23: the project is read-only in tasks except the iteration's results/ and the run's work directory.
+        plan_before = (it / 'README.md').read_bytes()
+        r = arh('submit', str(submit('forge', f'set -eu\necho ok > "{it}/results/forge-ok.txt"\n'
+                                               f'echo forged >> "{it}/README.md"\n')), '-n', 'forge')
+        readonly = any('Read-only file system' in e.read_text(errors='replace')
+                       for e in (it / 'metadata/nextflow/forge/work').glob('*/*/.command.err'))
+        case(*task_cases[5], r.returncode != 0 and readonly and (it / 'README.md').read_bytes() == plan_before
+             and (it / 'results/forge-ok.txt').is_file(),
+             f"submit exit {r.returncode}; stopped by a read-only mount {readonly}; plan unchanged "
+             f"{(it / 'README.md').read_bytes() == plan_before}; results/ writable {(it / 'results/forge-ok.txt').is_file()}")
+
+        # E24: a script that was in scripts/ when the plan was frozen is pinned with it.
+        n24, it24 = iteration('E24 pinned script', frozen=False, report=False)
+        (it24 / 'README.md').write_text(DECLARATION)
+        gating = it24 / 'scripts' / f'it{n24}_setup.sh'
+        gating.write_text('exit 0\n')
+        must('gate', 'predeclare', '-n', n24)
+        gating.write_text('exit 0  # acceptance rule relaxed after the freeze\n')
+        before_pin = cfg.read_text()
+        cfg.write_text(before_pin.replace('frozen_scripts    = warn', 'frozen_scripts    = refuse', 1))
+        r = arh('submit', str(gating), '-n', 'pinned')
+        cfg.write_text(before_pin)
+        case(*task_cases[6], r.returncode != 0 and 'pinned with the frozen plan changed' in r.stderr
+             and not (it24 / 'logs/nextflow/pinned').exists(), r.stderr)
 
         # E12, E13: sealed inputs. The held-out file sits inside a declared immutable input, so only the
         # seal stands between a task and it; the second script builds the path so no text names it.
