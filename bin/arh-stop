@@ -27,7 +27,6 @@ arh_load_project
 if [ "$all" = 1 ]; then owners=""
 else
   [ -n "$n" ] || arh_die "what to stop? arh stop -n N, or arh stop --all"
-  case "$n" in */*|.*) arh_die "no iteration or verification '$n'" ;; *[!0-9]*) owners="$ARH_VERIFY/$n" ;; *) owners="$ARH_ITERS/iteration$n" ;; esac
-  [ -d "$owners" ] || arh_die "no iteration or verification '$n'"
+  owners=$(arh_owner_dir "$n") && [ -d "$owners" ] || arh_die "no iteration or verification '$n'"
 fi
 exec python3 "$ARH_HOME/lib/stop.py" "$ARH_ITERS" "$ARH_VERIFY" "$(arh_config_get "$ARH_SITE" scheduler local)" "$jobs" $owners
